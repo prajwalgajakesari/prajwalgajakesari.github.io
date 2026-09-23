@@ -177,11 +177,11 @@ export function himalayaStage(ctx) {
   const tmat = new THREE.ShaderMaterial({
     uniforms,
     vertexShader: /* glsl */ `
-      varying vec3 vW; varying vec3 vN;
-      void main() { vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * viewMatrix * w; }`,
+      attribute float aRelief; varying vec3 vW; varying vec3 vN; varying float vRel;
+      void main() { vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); vRel = aRelief; gl_Position = projectionMatrix * viewMatrix * w; }`,
     fragmentShader: /* glsl */ `
       uniform vec3 uSun; uniform vec3 uFog; uniform float uFogNear, uFogFar; uniform vec3 uRider;
-      varying vec3 vW; varying vec3 vN;
+      varying vec3 vW; varying vec3 vN; varying float vRel;
       float iso(float v) { float f = fract(v); float w = fwidth(v); return 1.0 - smoothstep(0.0, w * 1.2, min(f, 1.0 - f)); }
       void main() {
         vec3 n = normalize(vN);
@@ -193,8 +193,11 @@ export function himalayaStage(ctx) {
         // rock: cool slate in the valley → warm lit granite up high, streaked by slope
         vec3 rock = mix(vec3(0.085, 0.10, 0.14), vec3(0.36, 0.30, 0.25), smoothstep(-1.0, 16.0, h));
         rock *= 0.8 + 0.35 * smoothstep(0.2, 0.9, n.y);     // darker on the cliffs
-        // snow settles on the high, gentle faces; blue in shade, bright in sun
-        float snowMask = smoothstep(9.0, 16.0, h) * smoothstep(0.48, 0.82, n.y);
+        // snow caps prominent ridges (relief) at any altitude, plus a general
+        // high-altitude dusting; steep faces stay rocky so peaks keep their shape
+        float snowRelief = smoothstep(6.0, 18.0, vRel);
+        float snowAlt = smoothstep(9.0, 22.0, h) * 0.7;
+        float snowMask = max(snowRelief, snowAlt) * smoothstep(0.46, 0.84, n.y);
         vec3 snow = mix(vec3(0.50, 0.58, 0.76), vec3(0.96, 0.98, 1.05), dif);
         vec3 albedo = mix(rock, snow, snowMask);
 
@@ -247,7 +250,15 @@ export function himalayaStage(ctx) {
     const geo = new THREE.PlaneGeometry(W, D, ctx.mobile ? 200 : 320, ctx.mobile ? 100 : 160);
     geo.rotateX(-Math.PI / 2);
     const p = geo.attributes.position;
-    for (let i = 0; i < p.count; i++) p.setY(i, heightAt(p.getX(i), p.getZ(i)));
+    const rel = new Float32Array(p.count);
+    for (let i = 0; i < p.count; i++) {
+      const x = p.getX(i), z = p.getZ(i);
+      const y = heightAt(x, z);
+      p.setY(i, y);
+      const km = clamp(x / XS + state.total / 2, 0, state.total);
+      rel[i] = y - (pathY(km) - 0.06); // local prominence above the valley floor
+    }
+    geo.setAttribute('aRelief', new THREE.BufferAttribute(rel, 1));
     geo.computeVertexNormals();
     terrain.geometry.dispose();
     terrain.geometry = geo;

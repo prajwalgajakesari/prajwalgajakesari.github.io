@@ -1,6 +1,5 @@
 {
   "file": "models/ktm.glb",
-  "credit": "Bike: KTM 790 Adv R Rally by espero7757 (CC BY 4.0)",
-  "yaw": 0,
-  "length": 1.9
+  "parts": "models/ktm.parts.json",
+  "credit": "890 model: real 2023 KTM 890 Adventure R"
 }

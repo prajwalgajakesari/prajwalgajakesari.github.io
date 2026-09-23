@@ -13,6 +13,7 @@
 # Slow step (connected-components + per-part decimation) is cached to the
 # scratchpad, so re-running to tweak the PALETTE below is fast.
 #
+#   pip install trimesh numpy fast-simplification pillow scipy
 #   python tools/stl_to_glb.py "<src.stl>" [out.glb] [--fresh]
 import sys, os, json, hashlib
 import numpy as np, trimesh, fast_simplification as fs
@@ -54,7 +55,9 @@ def cache_key():
     return hashlib.md5(f"{SRC}:{st.st_size}:{int(st.st_mtime)}:{LENGTH}".encode()).hexdigest()[:12]
 
 
-CACHE = f"/tmp/claude-501/-Users-prajwalp/f3dc379e-648f-4251-9788-fe9cfe437af0/scratchpad/ktm_dec_{cache_key()}.npz"
+CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".cache")
+os.makedirs(CACHE_DIR, exist_ok=True)
+CACHE = os.path.join(CACHE_DIR, f"ktm_dec_{cache_key()}.npz")
 
 
 def build_cache():

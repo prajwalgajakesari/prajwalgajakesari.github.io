@@ -1,14 +1,30 @@
-# Real bike model (optional)
+# Bike model
 
-The site ships a procedural KTM 890 Adventure. To use a real scan instead:
+The hero/orbit bike is the real **2023 KTM 890 Adventure R**, built from a print
+STL by `tools/stl_to_glb.py`. That script:
 
-1. Download a CC-licensed glTF/GLB, e.g. the CC-BY KTM 790 Adv R Rally scan:
-   https://sketchfab.com/3d-models/none-0ec0d02e4ae949ba8840207aca8e5c3c
-   (Sketchfab → Download 3D Model → glTF/GLB. Free login required.)
-2. Save it here as `ktm.glb`.
-3. Create `ktm.json` next to it (copy `ktm.json.example`), filling in the
-   attribution the licence requires and, if needed, a `yaw` so the bike faces
-   right (+x). The site auto-scales and drops it to the ground.
+- splits the print into connected solids and groups them into
+  `body` / `wheel_front` / `wheel_rear`;
+- paints each part by role (white bodywork, orange frame, black tyres, gunmetal
+  rims, dark engine) as baked vertex colours;
+- bakes orientation (up→+Y, forward→+X), scale (length 1.95 m) and ground
+  contact into the geometry;
+- centres each wheel on its axle and records the axle world positions in
+  `ktm.parts.json` (trimesh drops node translations on GLB export), so the site
+  can spin the wheels about their hubs.
 
-With no `ktm.json`, the loader stays off and the procedural bike is used.
-Keep the model under a few MB (decimate/Draco-compress a heavy scan first).
+Regenerate from a new STL:
+
+```
+pip install trimesh numpy fast-simplification pillow scipy
+python tools/stl_to_glb.py "<file>.stl"   # → public/models/ktm.glb + ktm.parts.json
+```
+
+`ktm.json` points the site at the GLB + parts config and carries the credit
+line. With no `ktm.json`, the loader stays off and a procedural KTM 890 is used
+(see `src/bike.js`). A GLB without the named wheel nodes falls back to a legacy
+single-skin loader.
+
+**Licence:** the STL's source, author and licence are still unconfirmed — the
+footer credit is a placeholder until that's settled. Confirm the licence permits
+public web use before deploying.

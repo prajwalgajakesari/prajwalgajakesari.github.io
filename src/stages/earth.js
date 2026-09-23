@@ -144,8 +144,8 @@ export function startStage(ctx) {
       bx = go * go * 26;
       bike.root.position.set(bx, Math.sin(time * (rpm / 60) * 6.283) * 0.004 * (0.3 + rf), 0);
       bike.wheelie.rotation.z = wheelie * 0.5 + go * 0.12;
-      bike.front.rotation.z = -bx / 0.37;
-      bike.rear.rotation.z = -bx / 0.35 - time * rf * 6;
+      bike.front.rotation.z = -bx / 0.305; // real 890 tyre radii (m) — no skid as it pulls away
+      bike.rear.rotation.z = -bx / 0.292 - time * rf * 6;
 
       const a = lerp(0.9, 1.34, ease(clamp(t / 0.62)));
       const r = lerp(7.6, 5.2, t);

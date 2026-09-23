@@ -236,7 +236,7 @@ addEventListener('keydown', (e) => {
 });
 
 // ───────────────────────── loop ─────────────────────────
-let cur = -1, fcKey = '', firstStage = true;
+let cur = -1, fcKey = '', firstStage = true, skyBlendUntil = 0;
 const clock = new THREE.Clock();
 const shake = new THREE.Vector3();
 function frame() {
@@ -269,6 +269,7 @@ function frame() {
         u.sunDir.value.copy(skyTarget.sunDir); u.sunColor.value.copy(skyTarget.sunColor); u.sunAmt.value = skyTarget.sunAmt;
         firstStage = false;
       }
+      skyBlendUntil = time + 1.2; // cross-fade the sky only right after a change, then let live stages own it
       starsTarget = st.stars;
       if (st.bike) { bike.root.visible = true; bike.root.position.set(0, 0, 0); bike.root.quaternion.identity(); st.enter?.({ bike }); }
       else bike.root.visible = false;
@@ -302,11 +303,14 @@ function frame() {
   }
   sky.position.copy(camera.position);
   stars.position.copy(camera.position);
-  // ease the sky toward the active stage's palette (cross-fades the horizon)
-  const su = sky.material.uniforms, sk = Math.min(1, dt * 3.2);
-  su.top.value.lerp(skyTarget.top, sk); su.horizon.value.lerp(skyTarget.horizon, sk); su.bottom.value.lerp(skyTarget.bottom, sk);
-  su.sunDir.value.lerp(skyTarget.sunDir, sk); su.sunColor.value.lerp(skyTarget.sunColor, sk);
-  su.sunAmt.value = lerp(su.sunAmt.value, skyTarget.sunAmt, sk);
+  // ease the sky toward the active stage's palette right after a change; once
+  // settled we stop, so stages that animate their own sky (e.g. LAUNCH) win.
+  if (time < skyBlendUntil) {
+    const su = sky.material.uniforms, sk = Math.min(1, dt * 3.2);
+    su.top.value.lerp(skyTarget.top, sk); su.horizon.value.lerp(skyTarget.horizon, sk); su.bottom.value.lerp(skyTarget.bottom, sk);
+    su.sunDir.value.lerp(skyTarget.sunDir, sk); su.sunColor.value.lerp(skyTarget.sunColor, sk);
+    su.sunAmt.value = lerp(su.sunAmt.value, skyTarget.sunAmt, sk);
+  }
   starMat.uniforms.uOp.value = lerp(starMat.uniforms.uOp.value, starsTarget, Math.min(1, dt * 4));
   starMat.uniforms.uTime.value = time;
 
