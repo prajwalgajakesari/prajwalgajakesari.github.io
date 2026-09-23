@@ -140,7 +140,7 @@ def build_cache():
             if cy < -6 and cz > 3.5:
                 return PAINT               # white rear side panels
             if abs(cx) > 1.8 and 0.5 < cy < 7.5 and zmin < 2.0 and cz < 4.5:
-                return FRAME               # orange lower radiator shrouds
+                return PAINT               # white tank / lower shrouds (orange is the frame, not the tank)
 
         return ENGINE   # default: engine, cases, radiators, brackets, cables, hardware = dark
 
