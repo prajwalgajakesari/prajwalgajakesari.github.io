@@ -30,21 +30,22 @@ LENGTH = 1.95  # target wheelbase-ish length in metres
 # bodywork, big KTM-orange lower shrouds + frame, blue graphic accents, black
 # plastics (handguards/seat/beak edge), silver skid plate + exhaust, dark
 # engine, black wheels, and a translucent smoke windscreen.
-PAINT, FRAME, ENGINE, SEAT, TYRE, RIM, BLUE, BLACK, METAL, GLASS = range(10)
+PAINT, FRAME, ENGINE, SEAT, TYRE, RIM, BLUE, BLACK, METAL, GLASS, LAMP = range(11)
 PALETTE = {
     PAINT:  0xEDECE8,  # white bodywork
-    FRAME:  0xFF5A00,  # vivid KTM racing orange (frame + lower shrouds + graphics)
+    FRAME:  0xFF5A00,  # vivid KTM racing orange (frame + graphics on the side panels)
     ENGINE: 0x24262A,  # LC8c dark metal
     SEAT:   0x121214,  # seat / tail
     TYRE:   0x0B0B0D,  # rubber
     RIM:    0x34373C,  # dark spoked rim (the R runs black rims)
     BLUE:   0x203C58,  # navy/petrol blue tank + lower shrouds (real 890 R)
-    BLACK:  0x161719,  # black plastics: handguards, beak edge, panels
+    BLACK:  0x161719,  # black plastics: headlight surround, handguards, rear mudflap
     METAL:  0x9CA0A6,  # brushed aluminium skid plate / exhaust
     GLASS:  0x86A6BE,  # smoke windscreen tint (loader gives it a glass material)
+    LAMP:   0xFFF2D8,  # headlight (loader gives it an emissive material so it glows)
 }
-# per-role material hint: 0=paint(clearcoat) 1=metal 2=rubber 3=glass
-MATCLASS = {PAINT: 0, FRAME: 0, ENGINE: 1, SEAT: 2, TYRE: 2, RIM: 1, BLUE: 0, BLACK: 2, METAL: 1, GLASS: 3}
+# per-role material hint: 0=paint(clearcoat) 1=metal 2=rubber 3=glass 4=lamp(emissive)
+MATCLASS = {PAINT: 0, FRAME: 0, ENGINE: 1, SEAT: 2, TYRE: 2, RIM: 1, BLUE: 0, BLACK: 2, METAL: 1, GLASS: 3, LAMP: 4}
 
 
 def srgb_to_linear(hexcol):
@@ -104,6 +105,10 @@ def build_cache():
         b = c.bounds
         return b[1][2] > 12.0 and abs(c.centroid[0]) < 2.0
 
+    def is_lamp(c):  # headlight lens: central, just below the screen, its own narrow band
+        ct = c.centroid
+        return abs(ct[0]) < 1.6 and 10.0 < ct[1] < 11.0 and 7.0 < ct[2] < 9.5 and 2000 < len(c.faces) < 6000
+
     # STL axes: x=width, y=front(+)/back, z=up (ground z≈-7.3, top z≈13.6).
     # KEY: everything mechanical (engine, cases, radiators, brackets, cables,
     # subframe, linkages, small hardware) must be DARK. So the DEFAULT is ENGINE,
@@ -129,24 +134,27 @@ def build_cache():
         if abs(cx) > 4.0 and cz > 9:
             return BLACK                   # handguards out by the bars
 
-        # ── outer bodywork panels (real 890 R: navy tank + shrouds, white boards) ──
+        # ── outer bodywork panels (real 890 R: navy tank + shrouds, orange boards) ──
         if big:
+            if cy > 8.0 and cz > 6.5 and abs(cx) < 3.2:
+                return BLACK               # black headlight surround / upper front cowl
             # navy blue: the tall central tank hump + the lower side shrouds
             if abs(cx) < 3.4 and 3.0 < cy < 7.5 and 5.5 < cz < 10.0:
                 return BLUE                # tank hump
             if abs(cx) > 1.8 and 0.0 < cy < 6.5 and -1.5 < cz < 4.5:
                 return BLUE                # lower side shrouds flanking the engine
-            # white: front mask/fairing/beak/fender, upper side number-boards, tail
-            if cy > 7.5 and cz > 3.0:
-                return PAINT               # front fairing / mask / beak / fender
-            if abs(cx) > 2.0 and cz > 4.5:
-                return PAINT               # white upper side number-board panels
+            if cy < -9.0 and cz < 5.5:
+                return BLACK               # rear mudflap / hugger behind the wheel
             if cy < -5.0 and cz > 3.0:
-                return PAINT               # white rear side panels / tail
+                return PAINT               # white rear tail panels
+            if cy > 7.5 and cz > 3.0:
+                return PAINT               # white beak / front fender (lower front)
+            if abs(cx) > 2.0 and cz > 4.5:
+                return FRAME               # orange graphic side number-board panels
 
         return ENGINE   # default: engine, cases, radiators, brackets, cables, hardware = dark
 
-    groups = {"body": [], "wheel_front": [], "wheel_rear": [], "glass": []}
+    groups = {"body": [], "wheel_front": [], "wheel_rear": [], "glass": [], "lamp": []}
     for c in comps:
         if near(c.centroid, faxle):
             groups["wheel_front"].append(c)
@@ -154,6 +162,8 @@ def build_cache():
             groups["wheel_rear"].append(c)
         elif is_glass(c):
             groups["glass"].append(c)
+        elif is_lamp(c):
+            groups["lamp"].append(c)
         else:
             groups["body"].append(c)
     # true tyre radius = widest part in each wheel (seed may be the rim, not the tyre)
@@ -164,14 +174,18 @@ def build_cache():
         "wheel_front": [wheel_role(c, fmax) for c in groups["wheel_front"]],
         "wheel_rear": [wheel_role(c, rmax) for c in groups["wheel_rear"]],
         "glass": [GLASS for _ in groups["glass"]],
+        "lamp": [LAMP for _ in groups["lamp"]],
         "body": [body_role(c) for c in groups["body"]],
     }
 
     # decimation budget per group (wheels keep spokes/tread so spin reads)
-    budget = {"body": 50000, "wheel_front": 11000, "wheel_rear": 11000, "glass": 9000}
+    budget = {"body": 50000, "wheel_front": 11000, "wheel_rear": 11000, "glass": 9000, "lamp": 6000}
     out = {"faxle": faxle, "raxle": raxle}
     for name in groups:
         parts, rids = groups[name], roles[name]
+        if not parts:
+            print(f"  {name:12s} (empty, skipped)")
+            continue
         # per-vertex role id on the pre-decimation mesh
         V = np.vstack([p.vertices for p in parts])
         F, off, rv = [], 0, []
@@ -205,7 +219,8 @@ else:
 # ── bake orientation / scale / ground from the whole model ────────────────────
 # stl(x=width, y=fore/aft, z=up) → world(x=forward, y=up, z=width)
 Rrot = np.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]], float)
-allV = np.vstack([data[n + "_v"] for n in ("body", "wheel_front", "wheel_rear", "glass")])
+NODES = [n for n in ("body", "wheel_front", "wheel_rear", "glass", "lamp") if (n + "_v") in data]
+allV = np.vstack([data[n + "_v"] for n in NODES])
 w = allV @ Rrot.T
 s = LENGTH / (w[:, 0].max() - w[:, 0].min())
 w *= s
@@ -226,7 +241,7 @@ def axle_world(axle):
 
 scene = trimesh.Scene()
 axles = {}
-for name in ("body", "wheel_front", "wheel_rear", "glass"):
+for name in NODES:
     v = to_world(data[name + "_v"])
     f = data[name + "_f"]
     rid = data[name + "_r"]

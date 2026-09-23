@@ -269,8 +269,11 @@ async function loadRealBike(obj) {
       envMap, envMapIntensity: 0.9, side: THREE.DoubleSide,
     });
     glassMat.userData.baseOpacity = 0.34;
+    // emissive headlight so the front reads as a lit lamp (bright enough to bloom)
+    const lampMat = new THREE.MeshStandardMaterial({ color: 0x2a2a2a, emissive: 0xfff0cf, emissiveIntensity: 2.6, roughness: 0.35, metalness: 0.0 });
+    lampMat.userData.baseOpacity = 1;
     paint.userData.baseOpacity = 1; wheelMat.userData.baseOpacity = 1;
-    const realMats = [paint, wheelMat];
+    const realMats = [paint, wheelMat, lampMat];
 
     const edgeMat = new THREE.LineBasicMaterial({ color: 0x8be9ff, transparent: true, opacity: 0, depthWrite: false });
     model.traverse((o) => {
@@ -280,8 +283,10 @@ async function loadRealBike(obj) {
       const nm = `${o.name} ${o.parent ? o.parent.name : ''}`;
       const isWheel = /wheel/.test(nm);
       const isGlass = /glass/.test(nm);
-      o.material = isGlass ? glassMat : isWheel ? wheelMat : paint;
+      const isLamp = /lamp/.test(nm);
+      o.material = isGlass ? glassMat : isLamp ? lampMat : isWheel ? wheelMat : paint;
       if (isGlass) { o.renderOrder = 2; o.userData.noSample = true; }
+      if (isLamp) o.userData.noSample = true;
       try { const e = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 44), edgeMat); e.raycast = () => {}; o.add(e); } catch {}
     });
 
