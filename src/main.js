@@ -4,10 +4,10 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { buildBike } from './bike.js';
-import { startStage, crestStage } from './stages/earth.js';
+import { startStage } from './stages/earth.js';
 import { mapStage, himalayaStage } from './stages/data.js';
+import { modelStage } from './stages/model.js';
 import { machineStage, printStage, orbitStage } from './stages/space.js';
-import { TULIPS } from './tulips.js';
 import { Engine } from './audio.js';
 import { clamp, lerp, smooth, rng } from './util.js';
 
@@ -15,37 +15,42 @@ const $ = (id) => document.getElementById(id);
 const mobile = matchMedia('(max-width: 760px)').matches || matchMedia('(pointer: coarse)').matches;
 const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-// ───────────────────────── roadbook ─────────────────────────
-TULIPS.space = '<path d="M12 21 V8.5"/><path d="M 12 2.6 L 15.6 8.6 L 8.4 8.6 Z" fill="currentColor"/><ellipse cx="12" cy="14.5" rx="9.5" ry="3.2" transform="rotate(-14 12 14.5)"/>';
-const BOXES = [
-  { total: 0, part: 0, icon: 'start', note: 'Start control', sub: 'SS · Beyond', cap: '041' },
-  { total: 12.4, part: 12.4, icon: 'keep-left', note: 'Liaison · who', sub: 'MotoGenie India', cap: '118' },
-  { total: 64.8, part: 52.4, icon: 'summit', note: 'SS Himalaya', sub: 'Manali → K-La', cap: '352' },
-  { total: 443.45, part: 378.65, icon: 'hairpin-right', note: 'The machine', sub: 'AI tooling', cap: '007' },
-  { total: 512.0, part: 68.55, icon: 'danger-3', note: 'Crest · full gas', sub: 'Do not lift', cap: '090', danger: true },
-  { total: 512.03, part: 0.03, icon: 'space', note: 'Leave the ground', sub: 'Aerospace · printing', cap: '↑' },
-  { total: Infinity, part: Infinity, icon: 'finish', note: 'Finish · orbit', sub: 'Contact', cap: '—' },
+// ───────────────────────── pipeline rail ─────────────────────────
+const ICONS = {
+  source: '<circle cx="12" cy="12" r="4.4"/><path d="M12 3v3.6M12 17.4V21M3 12h3.6M17.4 12H21"/>',
+  ingest: '<path d="M12 3v10.5"/><path d="M7.5 9.5 12 14l4.5-4.5"/><path d="M4 19.5h16"/>',
+  enrich: '<path d="M3 18 9 8l4 5 3-4 4 9Z"/>',
+  model: '<rect x="9.5" y="9.5" width="5" height="5" rx="1"/><rect x="2.5" y="3" width="4.5" height="4"/><rect x="17" y="3" width="4.5" height="4"/><rect x="2.5" y="17" width="4.5" height="4"/><rect x="17" y="17" width="4.5" height="4"/><path d="M7 5.5 9.8 10M17 5.5 14.2 10M7 18.5 9.8 14M17 18.5 14.2 14"/>',
+  serve: '<circle cx="5" cy="12" r="1.8"/><circle cx="19" cy="6" r="1.8"/><circle cx="19" cy="18" r="1.8"/><path d="M6.6 11 17.4 6.6M6.6 13 17.4 17.4"/>',
+  launch: '<path d="M12 21v-4"/><path d="M12 3c2.5 2.4 3.5 5.5 3.5 8.5 0 2-.7 3.7-1.5 5h-4c-.8-1.3-1.5-3-1.5-5C8.5 8.5 9.5 5.4 12 3Z"/><path d="M8.5 15 6 18h3M15.5 15 18 18h-3"/>',
+  orbit: '<circle cx="12" cy="12" r="4"/><ellipse cx="12" cy="12" rx="10" ry="4" transform="rotate(-24 12 12)"/>',
+};
+const NODES = [
+  { key: 'source', name: 'Source', sub: 'rider #001', detail: 'KTM 890 · GPS stream' },
+  { key: 'ingest', name: 'Ingest', sub: 'MotoGenie', detail: '14,738 places · 3,246 routes' },
+  { key: 'enrich', name: 'Enrich', sub: 'Himalaya', detail: 'altitude · season · permits' },
+  { key: 'model', name: 'Model', sub: 'star schema', detail: 'Trino · DataForge · CivilOS' },
+  { key: 'serve', name: 'Serve', sub: 'apps + AI', detail: 'MotoGenie · agent tooling' },
+  { key: 'launch', name: 'Launch', sub: 'additive', detail: 'print → 100 km' },
+  { key: 'orbit', name: 'Orbit', sub: 'sink', detail: 'contact' },
 ];
-const fmtKm = (v) => (Number.isFinite(v) ? v.toFixed(2) : '∞');
-const svg = (id) => `<svg viewBox="0 0 24 24" aria-hidden="true">${TULIPS[id] || ''}</svg>`;
+const ODO = [0, 12.4, 64.8, 443.5, 512, 512.1, Infinity]; // cumulative km, drives the odometer
+const svg = (key) => `<svg viewBox="0 0 24 24" aria-hidden="true">${ICONS[key] || ''}</svg>`;
 const sections = [...document.querySelectorAll('.stage')];
-const roll = $('rb-roll');
-const track = document.createElement('div');
-track.className = 'rb-track';
-roll.appendChild(track);
-BOXES.forEach((b, i) => {
+const nodeList = $('rail-nodes');
+NODES.forEach((n, i) => {
   const li = document.createElement('li');
-  li.innerHTML = `<button type="button" class="rb-box${b.danger ? ' danger' : ''}" aria-label="Box ${i + 1}: ${b.note}">
-    <span class="rb-dist"><span class="rb-num">${String(i + 1).padStart(2, '0')}</span><span class="rb-total">${fmtKm(b.total)}</span><span class="rb-part">${fmtKm(b.part)}</span></span>
-    <span class="rb-tulip">${svg(b.icon)}</span>
-    <span class="rb-note">${b.note}<span class="rb-cap">CAP ${b.cap}</span></span></button>`;
+  li.innerHTML = `<button type="button" class="node" aria-label="Node ${i + 1}: ${n.name}">
+    <span class="node-glyph">${svg(n.key)}</span>
+    <span class="node-txt"><span class="node-name">${String(i + 1).padStart(2, '0')} · ${n.name}</span><span class="node-sub">${n.sub}</span></span>
+    <span class="node-dot"></span></button>`;
   li.querySelector('button').addEventListener('click', () => goTo(i));
-  track.appendChild(li);
+  nodeList.appendChild(li);
 });
-const boxEls = [...track.querySelectorAll('.rb-box')];
-$('rbf-body').innerHTML = BOXES.map((b, i) => `<tr><td><b>${fmtKm(b.total)}</b>${fmtKm(b.part)} · #${i + 1}</td><td>${svg(b.icon)}</td><td>${b.note}<small>${b.sub} · CAP ${b.cap}</small></td></tr>`).join('');
+const nodeEls = [...nodeList.querySelectorAll('.node')];
+$('rbf-body').innerHTML = NODES.map((n, i) => `<tr><td><b>${String(i + 1).padStart(2, '0')}</b>${n.name}</td><td>${svg(n.key)}</td><td>${n.sub}<small>${n.detail}</small></td></tr>`).join('');
 const dlg = $('rb-full');
-$('rb-open').addEventListener('click', () => dlg.showModal());
+$('rail-log').addEventListener('click', () => dlg.showModal());
 $('rbf-close').addEventListener('click', () => dlg.close());
 $('rbf-print').addEventListener('click', () => window.print());
 
@@ -152,7 +157,7 @@ Promise.all([
 const bike = buildBike();
 scene.add(bike.root);
 const ctx = { bike, ready, mobile, reduced, dpr };
-const stages = renderer ? [startStage(ctx), mapStage(ctx), himalayaStage(ctx), machineStage(ctx), crestStage(ctx), printStage(ctx), orbitStage(ctx)] : [];
+const stages = renderer ? [startStage(ctx), mapStage(ctx), himalayaStage(ctx), modelStage(ctx), machineStage(ctx), printStage(ctx), orbitStage(ctx)] : [];
 stages.forEach((s) => { s.group.visible = false; scene.add(s.group); });
 
 if (renderer) {
@@ -247,10 +252,8 @@ function frame() {
   if (i !== cur) {
     if (stages[cur]) stages[cur].group.visible = false;
     cur = i;
-    boxEls.forEach((b, k) => b.classList.toggle('active', k === i));
-    const boxH = boxEls[0]?.offsetHeight || 100, boxW = boxEls[0]?.offsetWidth || 176;
-    if (mobile || innerWidth <= 760) track.style.transform = `translateX(${Math.max(0, i * boxW - (roll.clientWidth - boxW) / 2) * -1}px)`;
-    else track.style.transform = `translateY(${clamp((roll.clientHeight - boxH) / 3 - i * boxH, roll.clientHeight - BOXES.length * boxH, 0)}px)`;
+    nodeEls.forEach((b, k) => { b.classList.toggle('active', k === i); b.classList.toggle('done', k < i); });
+    nodeEls[i]?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: reduced ? 'auto' : 'smooth' });
     document.body.classList.toggle('space', !!st?.space);
     if (st) {
       st.group.visible = true;
@@ -312,15 +315,14 @@ function frame() {
     lastHud = time;
     const hud = st ? st.hud(t) : { alt: '—' };
     const shownRpm = inStart && rpm > 1500 ? rpm : 1400 + ((speed % 42) / 42) * 8100 * clamp(speed / 20);
-    const gear = speed < 3 ? 'N' : String(Math.min(6, Math.ceil(speed / 42)));
+    const gear = speed < 3 ? 'idle' : Math.round(clamp(speed / 245) * 100) + '%';
     H.spd.textContent = hud.spd ?? Math.round(speed);
     H.gear.textContent = hud.gear ?? gear;
     H.rpmv.textContent = Math.round(shownRpm).toLocaleString('en-IN');
     H.rpm.style.width = `${clamp(shownRpm / 9500) * 100}%`;
     H.alt.textContent = hud.alt;
     H.g.textContent = clamp(gForce, 0, 4.5).toFixed(1);
-    const b = BOXES[i], nb = BOXES[i + 1];
-    const odo = hud.odo ?? (hud.odoKm != null ? hud.odoKm : Number.isFinite(nb?.total) ? lerp(b.total, nb.total, t) : b.total);
+    const odo = hud.odo ?? (hud.odoKm != null ? hud.odoKm : Number.isFinite(ODO[i + 1]) ? lerp(ODO[i], ODO[i + 1], t) : ODO[i]);
     H.odo.textContent = typeof odo === 'number' ? (Number.isFinite(odo) ? odo.toFixed(2).padStart(7, '0') : '∞') : odo;
     H.hud.classList.toggle('redline', redline);
   }
@@ -354,5 +356,9 @@ fetch('data/meta.json').then((r) => r.json()).then((m) => {
   $('stat-places').textContent = m.places.toLocaleString('en-IN');
   $('stat-routes').textContent = m.routes.toLocaleString('en-IN');
 }).catch(() => {});
+
+// credit for the 3D bike scan (CC BY): filled from bike.js when a real model loads
+const credit = $('credit');
+if (credit && bike.credit) credit.innerHTML = ` · ${bike.credit}`;
 
 requestAnimationFrame(frame);

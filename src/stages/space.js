@@ -119,8 +119,8 @@ export function machineStage(ctx) {
       camera.position.set(Math.sin(a) * r, lerp(0.8, 2.2, t), Math.cos(a) * r);
       camera.lookAt(0, 0, 0);
     },
-    hud() { return { alt: 'SIM' }; },
-    fc: [[0, 'Converting machine to network…'], [0.35, 'Weights initialising. 9,000 parameters in the air.'], [0.65, 'The bike is learning to ride itself.']],
+    hud() { return { alt: 'SERVE', gear: 'live' }; },
+    fc: [[0, 'Publishing modelled data to the edge…'], [0.35, 'Genie online. Answering with the catalog behind it.'], [0.65, 'Assistants wired to real work: git, catalogs, the terminal.']],
   };
 }
 

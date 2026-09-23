@@ -94,7 +94,7 @@ export function startStage(ctx) {
   const beam = new THREE.Mesh(new THREE.BoxGeometry(0.34, 0.95, 7.1), black);
   beam.position.set(-3.4, 4.55, 0);
   g.add(beam);
-  const banner = new THREE.Mesh(new THREE.PlaneGeometry(7.0, 0.875), new THREE.MeshStandardMaterial({ map: bannerTexture('SPECIAL STAGE · BEYOND'), roughness: 0.7, emissive: 0xffffff, emissiveIntensity: 0.12 }));
+  const banner = new THREE.Mesh(new THREE.PlaneGeometry(7.0, 0.875), new THREE.MeshStandardMaterial({ map: bannerTexture('GROUND TO ORBIT'), roughness: 0.7, emissive: 0xffffff, emissiveIntensity: 0.12 }));
   banner.material.emissiveMap = banner.material.map;
   banner.rotation.y = Math.PI / 2;
   banner.position.set(-3.22, 4.55, 0);
