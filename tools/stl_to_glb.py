@@ -38,7 +38,7 @@ PALETTE = {
     SEAT:   0x121214,  # seat / tail
     TYRE:   0x0B0B0D,  # rubber
     RIM:    0x34373C,  # dark spoked rim (the R runs black rims)
-    BLUE:   0x1E49A0,  # KTM Atlantic blue graphic accent
+    BLUE:   0x203C58,  # navy/petrol blue tank + lower shrouds (real 890 R)
     BLACK:  0x161719,  # black plastics: handguards, beak edge, panels
     METAL:  0x9CA0A6,  # brushed aluminium skid plate / exhaust
     GLASS:  0x86A6BE,  # smoke windscreen tint (loader gives it a glass material)
@@ -116,7 +116,7 @@ def build_cache():
         cx, cy, cz = c.centroid
         b = c.bounds; zmin = b[0][2]
         faces = len(c.faces)
-        tube = M < 0.5 * L and S < 0.6 * L and L > 6
+        tube = M < 3.2 and S < 3.2 and L > 6   # a real frame rail is thin in BOTH cross dims (panels are wide in one)
         big = faces >= 2500               # a real panel, not small hardware
 
         # ── mechanical / structural first ──
@@ -124,23 +124,25 @@ def build_cache():
             return METAL                   # silver exhaust (long, one-sided, low, rear)
         if tube:
             return FRAME                   # orange trellis rails / down-tubes
-        if abs(cx) > 3.8 and cz > 8 and cy > 3:
+        if abs(cx) < 2.6 and cy < 1.5 and cz > 4.5 and L > 7:
+            return SEAT                    # black seat / rear spine (long central upper)
+        if abs(cx) > 4.0 and cz > 9:
             return BLACK                   # handguards out by the bars
-        if abs(cx) < 2.0 and cy < -6 and cz > 3.5:
-            return SEAT                    # central seat / tail = black
 
-        # ── outer bodywork panels: only sizeable parts up on the skin ──
+        # ── outer bodywork panels (real 890 R: navy tank + shrouds, white boards) ──
         if big:
-            if abs(cx) > 1.8 and cy > 7 and cz > 6:
-                return BLUE                # small blue graphic flash on the fairing wings
-            if cy > 6.5 and cz > 3.0:
-                return PAINT               # white front mask / fairing / beak / fender
-            if cz > 4.0 and zmin > 0.5 and abs(cx) < 4.5:
-                return PAINT               # white tank top / upper shrouds
-            if cy < -6 and cz > 3.5:
-                return PAINT               # white rear side panels
-            if abs(cx) > 1.8 and 0.5 < cy < 7.5 and zmin < 2.0 and cz < 4.5:
-                return PAINT               # white tank / lower shrouds (orange is the frame, not the tank)
+            # navy blue: the tall central tank hump + the lower side shrouds
+            if abs(cx) < 3.4 and 3.0 < cy < 7.5 and 5.5 < cz < 10.0:
+                return BLUE                # tank hump
+            if abs(cx) > 1.8 and 0.0 < cy < 6.5 and -1.5 < cz < 4.5:
+                return BLUE                # lower side shrouds flanking the engine
+            # white: front mask/fairing/beak/fender, upper side number-boards, tail
+            if cy > 7.5 and cz > 3.0:
+                return PAINT               # front fairing / mask / beak / fender
+            if abs(cx) > 2.0 and cz > 4.5:
+                return PAINT               # white upper side number-board panels
+            if cy < -5.0 and cz > 3.0:
+                return PAINT               # white rear side panels / tail
 
         return ENGINE   # default: engine, cases, radiators, brackets, cables, hardware = dark
 
