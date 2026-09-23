@@ -1,0 +1,271 @@
+// Stage 02 (India from MotoGenie data) and stage 03 (Manali → Khardung La, real elevation).
+import * as THREE from 'three';
+import { clamp, lerp, smooth, ease, fbm, rng, glowTexture, textSprite, COLOR_OUT } from '../util.js';
+
+const K = 0.55; // world units per degree
+export const lonLatToMap = (lon, lat) => [(lon - 80) * K, -(lat - 22) * K];
+export function decode(x, y) {
+  return [((x + 32768) / 65535) * 30 + 68, ((y + 32768) / 65535) * 31.5 + 6];
+}
+
+export function placesMaterial(px) {
+  return new THREE.ShaderMaterial({
+    uniforms: { uReveal: { value: 0 }, uTime: { value: 0 }, uPx: { value: px }, uLift: { value: 3 } },
+    vertexShader: /* glsl */ `
+      attribute float aRand; uniform float uReveal, uTime, uPx, uLift; varying float vA; varying float vR;
+      void main() {
+        vec3 p = position;
+        float r = smoothstep(aRand, aRand + 0.08, uReveal * 1.1);
+        p.y += (1.0 - r) * uLift;
+        vec4 mv = modelViewMatrix * vec4(p, 1.0);
+        gl_Position = projectionMatrix * mv;
+        float tw = 0.7 + 0.3 * sin(uTime * 2.0 + aRand * 60.0);
+        gl_PointSize = uPx * (0.8 + aRand * 0.9) * tw * (14.0 / -mv.z);
+        vA = r; vR = aRand;
+      }`,
+    fragmentShader: /* glsl */ `
+      varying float vA; varying float vR;
+      void main() {
+        float d = length(gl_PointCoord - 0.5);
+        float a = smoothstep(0.5, 0.0, d) * vA;
+        if (a < 0.01) discard;
+        vec3 col = mix(vec3(1.0, 0.35, 0.0), vec3(1.0, 0.82, 0.55), vR);
+        gl_FragColor = vec4(col * a, a);
+      }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+}
+
+export function placesGeometry(places, project) {
+  const n = places.length / 2;
+  const pos = new Float32Array(n * 3), rnd = new Float32Array(n);
+  const R = rng(3);
+  for (let i = 0; i < n; i++) {
+    const [lon, lat] = decode(places[i * 2], places[i * 2 + 1]);
+    const v = project(lon, lat);
+    pos.set(v, i * 3);
+    rnd[i] = R();
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+  geo.setAttribute('aRand', new THREE.BufferAttribute(rnd, 1));
+  return geo;
+}
+
+// ───────────────────────── 02 · LIAISON (India) ─────────────────────────
+export function mapStage(ctx) {
+  const g = new THREE.Group();
+  const grid = new THREE.GridHelper(60, 60, 0x1d2a3a, 0x121a26);
+  grid.position.y = -0.02;
+  g.add(grid);
+
+  const pmat = placesMaterial(3 * ctx.dpr);
+  const rmat = new THREE.ShaderMaterial({
+    uniforms: { uReveal: { value: 0 } },
+    vertexShader: /* glsl */ `
+      attribute float aProg; attribute float aDelay; uniform float uReveal; varying float vA;
+      void main() { vA = clamp((uReveal * 1.7 - aDelay - aProg * 0.45) * 5.0, 0.0, 1.0); gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`,
+    fragmentShader: /* glsl */ `
+      varying float vA;
+      void main() { if (vA < 0.01) discard; gl_FragColor = vec4(vec3(1.0, 0.42, 0.05) * vA * 0.18, vA); }`,
+    transparent: true, depthWrite: false, blending: THREE.AdditiveBlending,
+  });
+
+  const LEH = lonLatToMap(77.577, 34.153);
+  const ring = new THREE.Mesh(new THREE.RingGeometry(0.16, 0.2, 48), new THREE.MeshBasicMaterial({ color: 0x8be9ff, transparent: true, side: THREE.DoubleSide, depthWrite: false }));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(LEH[0], 0.02, LEH[1]);
+  const lbl = textSprite('LEH', { color: '#8be9ff', size: 0.55, sub: '3,500 m · gateway to Khardung La' });
+  lbl.position.set(LEH[0], 0.55, LEH[1]);
+  g.add(ring, lbl);
+
+  ctx.ready.then(({ places, routes }) => {
+    g.add(new THREE.Points(placesGeometry(places, (lon, lat) => { const [x, z] = lonLatToMap(lon, lat); return [x, 0, z]; }), pmat));
+    // routes: [u16 count][count × (i16, i16)] …
+    const dv = new DataView(routes);
+    const pos = [], prog = [], delay = [];
+    const R = rng(5);
+    let o = 0;
+    while (o < routes.byteLength) {
+      const n = dv.getUint16(o, true); o += 2;
+      const d = R() * 0.6;
+      let prev = null;
+      for (let i = 0; i < n; i++) {
+        const [lon, lat] = decode(dv.getInt16(o, true), dv.getInt16(o + 2, true)); o += 4;
+        const [x, z] = lonLatToMap(lon, lat);
+        if (prev) { pos.push(prev[0], 0.01, prev[1], x, 0.01, z); prog.push((i - 1) / n, i / n); delay.push(d, d); }
+        prev = [x, z];
+      }
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute('aProg', new THREE.Float32BufferAttribute(prog, 1));
+    geo.setAttribute('aDelay', new THREE.Float32BufferAttribute(delay, 1));
+    g.add(new THREE.LineSegments(geo, rmat));
+  });
+
+  const p0 = new THREE.Vector3(1.2, 30, 11), p1 = new THREE.Vector3(5, 12, 3), p2 = new THREE.Vector3(LEH[0] + 1.6, 2.4, LEH[1] + 3.4);
+  const l0 = new THREE.Vector3(1.4, 0, 0.5), l2 = new THREE.Vector3(LEH[0], 0.2, LEH[1]);
+  const bez = (a, b, c, s) => a.clone().multiplyScalar((1 - s) ** 2).addScaledVector(b, 2 * (1 - s) * s).addScaledVector(c, s * s);
+  return {
+    name: 'map', group: g,
+    fog: null,
+    sky: { top: 0x03050b, horizon: 0x0b1424, bottom: 0x03050b, sunDir: [0, -1, 0], sunColor: 0x000000, sun: 0 },
+    stars: 0.7, offset: 0.12,
+    update(t, time, dt, { camera }) {
+      const s = ease(clamp(t));
+      pmat.uniforms.uReveal.value = smooth(0.02, 0.5, t);
+      pmat.uniforms.uTime.value = time;
+      rmat.uniforms.uReveal.value = smooth(0.12, 0.7, t);
+      camera.position.copy(bez(p0, p1, p2, s));
+      camera.lookAt(l0.clone().lerp(l2, smooth(0.2, 1, t)));
+      const pulse = (time * 0.8) % 1;
+      ring.scale.setScalar(1 + pulse * 2.5);
+      ring.material.opacity = (1 - pulse) * smooth(0.55, 0.8, t);
+      lbl.material.opacity = smooth(0.7, 0.9, t);
+    },
+    hud(t) { return { alt: `${Math.round(lerp(12000, 3500, ease(clamp(t)))).toLocaleString('en-IN')} m` }; },
+    fc: [[0, 'Loading MotoGenie: 14,738 places · 3,246 routes.'], [0.35, 'Every glowing line is a road someone can ride.'], [0.7, 'Descending on Leh. Next box: the Himalaya.']],
+  };
+}
+
+// ───────────────────────── 03 · SS HIMALAYA ─────────────────────────
+export function himalayaStage(ctx) {
+  const g = new THREE.Group();
+  const state = { prof: null, total: 378.65, peak: 5411 };
+  const XS = 0.28;
+  const pathX = (km) => (km - state.total / 2) * XS;
+  const pathZ = (km) => Math.sin(km * 0.045) * 5 + Math.sin(km * 0.011 + 1) * 9;
+  const elev = (km) => {
+    const P = state.prof;
+    if (!P) return 2000;
+    const k = clamp(km, 0, state.total);
+    let i = 1;
+    while (i < P.km.length - 1 && P.km[i] < k) i++;
+    const f = clamp((k - P.km[i - 1]) / (P.km[i] - P.km[i - 1] || 1));
+    return lerp(P.m[i - 1], P.m[i], f);
+  };
+  const pathY = (km) => (elev(km) - 2000) / 1000 * 3.2;
+  const P = (km) => new THREE.Vector3(pathX(km), pathY(km), pathZ(km));
+  const heightAt = (x, z) => {
+    const km = x / XS + state.total / 2;
+    const d = Math.abs(z - pathZ(clamp(km, 0, state.total)));
+    const m = Math.pow(fbm(x * 0.055 + 4, z * 0.055, 5), 1.5) * 16 * smooth(0.9, 12, d) + smooth(10, 30, d) * 5;
+    return pathY(km) - 0.06 + m;
+  };
+
+  const uniforms = {
+    uSun: { value: new THREE.Vector3(0.5, 0.35, -0.6) },
+    uFog: { value: new THREE.Color(0x2a3048) },
+    uFogNear: { value: 22 }, uFogFar: { value: 85 },
+    uRider: { value: new THREE.Vector3() },
+  };
+  const tmat = new THREE.ShaderMaterial({
+    uniforms,
+    vertexShader: /* glsl */ `
+      varying vec3 vW; varying vec3 vN;
+      void main() { vec4 w = modelMatrix * vec4(position, 1.0); vW = w.xyz; vN = normalize(mat3(modelMatrix) * normal); gl_Position = projectionMatrix * viewMatrix * w; }`,
+    fragmentShader: /* glsl */ `
+      uniform vec3 uSun; uniform vec3 uFog; uniform float uFogNear, uFogFar; uniform vec3 uRider;
+      varying vec3 vW; varying vec3 vN;
+      float iso(float v) { float f = fract(v); float w = fwidth(v); return 1.0 - smoothstep(0.0, w * 1.3, min(f, 1.0 - f)); }
+      void main() {
+        vec3 n = normalize(vN);
+        float dif = max(dot(n, normalize(uSun)), 0.0);
+        float h = vW.y;
+        vec3 rock = mix(vec3(0.05, 0.045, 0.05), vec3(0.16, 0.14, 0.13), clamp(h / 9.0, 0.0, 1.0));
+        float snow = smoothstep(11.5, 15.0, h + (n.y - 0.75) * 4.0);
+        vec3 col = mix(rock, vec3(0.42, 0.47, 0.56), snow) * (0.2 + 0.8 * dif);
+        col += iso(h * 1.6) * vec3(0.25, 0.55, 0.8) * 0.28;
+        col += iso(h * 0.32) * vec3(1.0, 0.45, 0.15) * 0.45;
+        float rd = length(vW - uRider);
+        col += vec3(1.0, 0.4, 0.08) * exp(-rd * rd * 0.35) * 0.8;
+        float fg = smoothstep(uFogNear, uFogFar, length(vW - cameraPosition));
+        gl_FragColor = vec4(mix(col, uFog, fg), 1.0);
+        ${COLOR_OUT}
+      }`,
+  });
+  const terrain = new THREE.Mesh(new THREE.BufferGeometry(), tmat);
+  g.add(terrain);
+
+  const road = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0xff7a1a, toneMapped: false }));
+  const roadGhost = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: 0xf3ecdc, transparent: true, opacity: 0.18, depthWrite: false }));
+  g.add(road, roadGhost);
+
+  const rider = new THREE.Group();
+  rider.add(new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffe0b0, toneMapped: false })));
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture('rgba(255,140,40,1)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  halo.scale.set(1.6, 1.6, 1);
+  rider.add(halo);
+  g.add(rider);
+
+  const hemi = new THREE.HemisphereLight(0x8090c0, 0x201810, 0.4);
+  const d1 = new THREE.DirectionalLight(0xffc0a0, 1); d1.position.set(20, 20, -30);
+  const d2 = new THREE.DirectionalLight(0x6080ff, 0.4); d2.position.set(-20, 10, 20);
+  const pl = new THREE.PointLight(0xff8a2b, 2, 6, 2);
+  rider.add(pl);
+  g.add(hemi, d1, d2);
+
+  let peakKm = 0, segs = 1, radial = 6;
+  ctx.ready.then(({ prof }) => {
+    state.prof = prof;
+    state.total = prof.km[prof.km.length - 1];
+    state.peak = Math.max(...prof.m);
+    peakKm = prof.km[prof.m.indexOf(state.peak)];
+    const W = 124, D = 64;
+    const geo = new THREE.PlaneGeometry(W, D, ctx.mobile ? 200 : 320, ctx.mobile ? 100 : 160);
+    geo.rotateX(-Math.PI / 2);
+    const p = geo.attributes.position;
+    for (let i = 0; i < p.count; i++) p.setY(i, heightAt(p.getX(i), p.getZ(i)));
+    geo.computeVertexNormals();
+    terrain.geometry.dispose();
+    terrain.geometry = geo;
+    const pts = [];
+    for (let i = 0; i <= 400; i++) { const v = P((i / 400) * state.total); v.y += 0.05; pts.push(v); }
+    const curve = new THREE.CatmullRomCurve3(pts);
+    segs = 800;
+    road.geometry = new THREE.TubeGeometry(curve, segs, 0.045, radial, false);
+    roadGhost.geometry = new THREE.TubeGeometry(curve, segs, 0.03, 4, false);
+    const peak = textSprite('KHARDUNG LA', { color: '#f3ecdc', size: 1.1, sub: `${state.peak.toLocaleString('en-IN')} m on the profile` });
+    peak.position.copy(P(peakKm)).add(new THREE.Vector3(0, 1.6, 0));
+    const manali = textSprite('MANALI', { color: '#f3ecdc', size: 0.9, sub: `${Math.round(prof.m[0]).toLocaleString('en-IN')} m` });
+    manali.position.copy(P(0)).add(new THREE.Vector3(0, 1.3, 0));
+    g.add(peak, manali);
+    const len = document.getElementById('ride-len');
+    if (len) len.textContent = `${Math.round(state.total)} km`;
+    const pk = document.getElementById('ride-peak');
+    if (pk) pk.textContent = `${state.peak.toLocaleString('en-IN')} m`;
+  });
+
+  let km = 0, camY = null;
+  const camPos = new THREE.Vector3(), camLook = new THREE.Vector3();
+  return {
+    name: 'himalaya', group: g,
+    fog: null,
+    sky: { top: 0x070d22, horizon: 0x4a4468, bottom: 0x151522, sunDir: [0.5, 0.06, -0.8], sunColor: 0xff9a8a, sun: 0.6 },
+    stars: 0.45, offset: 0,
+    update(t, time, dt, { camera }) {
+      km = ease(clamp((t - 0.03) / 0.94)) * state.total;
+      const pos = P(km);
+      rider.position.copy(pos).add(new THREE.Vector3(0, 0.12, 0));
+      uniforms.uRider.value.copy(pos);
+      road.geometry.setDrawRange(0, Math.floor((km / state.total) * segs) * radial * 6);
+      const ahead = P(Math.min(km + 10, state.total + 10));
+      const back = P(Math.max(km - 16, -16));
+      const dir = ahead.clone().sub(back).setY(0).normalize();
+      const side = new THREE.Vector3(-dir.z, 0, dir.x);
+      camPos.copy(pos).addScaledVector(dir, -8).addScaledVector(side, 1.5).add(new THREE.Vector3(0, 5.5, 0));
+      let ground = -1e9;
+      for (let k = 1; k <= 4; k++) { const q = pos.clone().lerp(camPos, k / 4); ground = Math.max(ground, heightAt(q.x, q.z) + 1.2 + k * 0.4); }
+      camPos.y = Math.max(camPos.y, ground);
+      camY = camY == null ? camPos.y : lerp(camY, camPos.y, Math.min(1, dt * 3));
+      camPos.y = camY;
+      camLook.copy(pos).addScaledVector(dir, 3).add(new THREE.Vector3(0, 0.4, 0));
+      camera.position.copy(camPos);
+      camera.lookAt(camLook);
+      halo.material.opacity = 0.7 + Math.sin(time * 6) * 0.2;
+    },
+    hud(t) { return { alt: `${Math.round(elev(km)).toLocaleString('en-IN')} m`, odoKm: 64.8 + km }; },
+    fc: [[0, 'Profile loaded: Manali → Khardung La, real elevation.'], [0.35, 'Oxygen thinning. Pilot unbothered.'], [0.7, 'Summit in sight. Next box: the machine.']],
+  };
+}

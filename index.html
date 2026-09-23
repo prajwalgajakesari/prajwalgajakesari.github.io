@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prajwal P · Special Stage: Beyond</title>
+  <meta name="description" content="Prajwal P: rally rider, software engineer, studied aerospace. A rally stage that ends at a crest and never comes back down." />
+  <meta name="theme-color" content="#07080c" />
+  <meta property="og:title" content="Prajwal P · Special Stage: Beyond" />
+  <meta property="og:description" content="A rally stage that ends at a crest and never comes back down." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Crect width='24' height='24' rx='5' fill='%2307080c'/%3E%3Cpath d='M12 20V7' stroke='%23ff6a00' stroke-width='2.4'/%3E%3Cpath d='M12 2.5 16 8H8Z' fill='%23ff6a00'/%3E%3C/svg%3E" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@500;700;900&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/src/style.css" />
+</head>
+<body>
+  <canvas id="gl" aria-hidden="true"></canvas>
+  <div id="veil" aria-hidden="true"></div>
+  <div id="grain" aria-hidden="true"></div>
+
+  <!-- Telemetry HUD: driven by scroll speed -->
+  <aside id="hud" aria-label="Telemetry">
+    <div class="hud-row hud-speed"><span class="hud-k">SPD</span><span class="hud-v" id="h-spd">0</span><span class="hud-u" id="h-spd-u">km/h</span></div>
+    <div class="hud-tach"><div class="hud-tach-bar" id="h-rpm"></div><span class="hud-redline"></span></div>
+    <div class="hud-grid">
+      <div><span class="hud-k">GEAR</span><span class="hud-v" id="h-gear">N</span></div>
+      <div><span class="hud-k">RPM</span><span class="hud-v" id="h-rpmv">1,400</span></div>
+      <div><span class="hud-k">ALT</span><span class="hud-v" id="h-alt">0 m</span></div>
+      <div><span class="hud-k">G</span><span class="hud-v" id="h-g">1.0</span></div>
+    </div>
+    <div class="hud-odo"><span class="hud-k">ODO</span><span id="h-odo">0000.00</span><span class="hud-k">KM</span></div>
+    <div class="hud-foot">KTM 890 ADV · #001</div>
+  </aside>
+
+  <!-- Roadbook rail: the site navigation, drawn with Prajwal's own rally symbols -->
+  <nav id="roadbook" aria-label="Roadbook navigation">
+    <div class="rb-head"><span>SS·BEYOND</span><span>ROADBOOK</span></div>
+    <ol class="rb-roll" id="rb-roll"></ol>
+    <button class="rb-open" id="rb-open" type="button" title="Open full roadbook (R)">R · full roadbook</button>
+  </nav>
+
+  <!-- Flight computer -->
+  <div id="fc" role="status" aria-live="polite"><span class="fc-tag">FC&gt;</span><span id="fc-text"></span><span class="fc-caret"></span></div>
+
+  <main id="stages">
+    <!-- 01 START -->
+    <section class="stage stage-hero" data-stage="0" id="start">
+      <div class="hero-inner">
+        <p class="kicker reveal">Special stage · Beyond · Rider #001</p>
+        <h1 class="hero-name reveal"><span>Prajwal</span> <span class="hero-p">P</span></h1>
+        <p class="hero-tag reveal">Rally rider. Software engineer. Studied the sky.<br/>This stage ends at a crest and never comes back down.</p>
+        <div class="hero-actions reveal">
+          <button id="rev" class="rev" type="button" aria-describedby="rev-hint">
+            <span class="rev-ring"></span><span class="rev-label">HOLD TO REV</span>
+          </button>
+          <p id="rev-hint" class="hint">Hold for sound (the 890's twin, synthesised) · scroll to twist the throttle</p>
+        </div>
+      </div>
+      <div class="scroll-cue" aria-hidden="true"><span>SCROLL</span><i></i></div>
+    </section>
+
+    <!-- 02 LIAISON / ABOUT -->
+    <section class="stage" data-stage="1" id="about">
+      <div class="panel panel-left reveal">
+        <p class="kicker">Box 02 · Liaison</p>
+        <h2>I build software the way I ride rally.</h2>
+        <p class="lede">Read the next box. Commit. Adjust at speed.</p>
+        <p>By day I run data platforms on Trino, Azure Data Lake and Purview. By night I write SwiftUI apps and build AI tooling that lets assistants act, not just answer. Most of it starts the same way: I wanted a tool that didn't exist yet, so I built it.</p>
+        <p>I studied aerospace. I race and ride rally on a KTM 890 Adventure. And there's a 3D printer humming in the corner of the workshop.</p>
+      </div>
+      <div class="panel panel-right panel-caption reveal">
+        <p class="stat"><b id="stat-places">14,738</b> places</p>
+        <p class="stat"><b id="stat-routes">3,246</b> routes</p>
+        <p class="caption">Each dot is a real place from <strong>MotoGenie</strong>, my riding dataset of India. I scraped, enriched and mapped every state for riders: altitudes, permits, seasons.</p>
+      </div>
+    </section>
+
+    <!-- 03 HIMALAYA SS / RIDING -->
+    <section class="stage" data-stage="2" id="ride">
+      <div class="panel panel-left reveal">
+        <p class="kicker">Box 03 · SS Himalaya · Manali → Khardung La</p>
+        <h2>Software for riders, written by one.</h2>
+        <p class="lede">This terrain is real: the elevation profile of the Manali to Khardung La route in my dataset, <span id="ride-len">378 km</span>, topping out at <span id="ride-peak">5,411 m</span>.</p>
+      </div>
+      <div class="cards reveal">
+        <article class="card">
+          <p class="card-k">Rally · monorepo</p>
+          <h3>all-things-rally</h3>
+          <p>A roadbook Studio. Import a GPX and it draws the tulips, distances and CAP headings for you. Includes an offline in-ride reader, plus grassroots stage timing from phones with no paid hardware. The symbols on this page's roadbook come from it.</p>
+        </article>
+        <article class="card">
+          <p class="card-k">Motorsport · SaaS</p>
+          <h3>Lap</h3>
+          <p>A multi-tenant platform for FMSCI-sanctioned motorsport events in India: entries, officials, timing and results. Piloted with Moto Arena Adventure Park.</p>
+        </article>
+        <article class="card">
+          <p class="card-k">iOS · Android · AI</p>
+          <h3>MotoGenie</h3>
+          <p>A riding companion for India. It does live GPS ride tracking, group rides with real-time location, and Live Activities on the lock screen. It ships 14,738 places and 3,246 routes enriched with seasons, permits and altitude, plus Genie, an AI co-rider built on Gemini.</p>
+        </article>
+        <a class="card card-link" href="https://github.com/prajwalgajakesari/gmaps2gpx" target="_blank" rel="noopener">
+          <p class="card-k">Web · CLI · PyPI</p>
+          <h3>gmaps2gpx ↗</h3>
+          <p>Turn a Google Maps route into a GPX file for the long ride, with a motorcycle routing mode.</p>
+        </a>
+      </div>
+    </section>
+
+    <!-- 04 THE MACHINE / AI -->
+    <section class="stage" data-stage="3" id="ai">
+      <div class="panel panel-left reveal">
+        <p class="kicker">Box 04 · The machine learns to ride</p>
+        <h2>Tools that let AI <em>act</em>.</h2>
+        <p class="lede">The bike becomes a network. I build the parts that connect assistants to real work: git, catalogs, data models, the terminal.</p>
+      </div>
+      <div class="cards reveal">
+        <a class="card card-link card-wide" href="https://github.com/prajwalgajakesari/agent-sessions" target="_blank" rel="noopener">
+          <p class="card-k">Claude Code · Codex · OpenCode · PyPI</p>
+          <h3>agent-sessions ↗</h3>
+          <p>Share coding-agent sessions through the git repo you already use. One push turns a session into a redacted transcript plus a handoff summary, and a teammate on any agent can pull it into their own chat.</p>
+        </a>
+        <a class="card card-link" href="https://github.com/prajwalgajakesari/dataforge" target="_blank" rel="noopener">
+          <p class="card-k">Python · dbt · Claude skill</p>
+          <h3>DataForge ↗</h3>
+          <p>AI-assisted data modeling from the terminal: profile a schema, find normal-form violations, design a star schema, and generate the dbt project.</p>
+        </a>
+        <a class="card card-link" href="https://github.com/prajwalgajakesari/Azure_Purview_MCP" target="_blank" rel="noopener">
+          <p class="card-k">MCP · TypeScript</p>
+          <h3>Azure Purview MCP ↗</h3>
+          <p>Lets an assistant search, read and update data-catalog metadata.</p>
+        </a>
+        <a class="card card-link" href="https://github.com/prajwalgajakesari/the-vault-ai" target="_blank" rel="noopener">
+          <p class="card-k">Daily · automated</p>
+          <h3>The Vault, AI Edition ↗</h3>
+          <p>A daily AI brief, researched and published every morning, with no hands on the bars.</p>
+        </a>
+        <a class="card card-link" href="https://github.com/prajwalgajakesari/claude-music" target="_blank" rel="noopener">
+          <p class="card-k">Slash command</p>
+          <h3>claude-music ↗</h3>
+          <p>A <code>/music</code> command that plays Apple Music without leaving the terminal.</p>
+        </a>
+        <a class="card card-link" href="https://github.com/prajwalgajakesari/disklens" target="_blank" rel="noopener">
+          <p class="card-k">macOS · SwiftUI</p>
+          <h3>DiskLens ↗</h3>
+          <p>A Liquid Glass disk visualiser that color-codes what is safe to delete.</p>
+        </a>
+      </div>
+    </section>
+
+    <!-- 05 CREST -->
+    <section class="stage" data-stage="4" id="crest">
+      <div class="panel panel-center reveal">
+        <p class="kicker warn">Box 05 · <span class="dz">!!!</span> Crest · full gas</p>
+        <h2 class="huge">The roadbook<br/>stops here.</h2>
+        <p class="lede">I race and ride rally. The crest is the one box you can't read past. You commit, the front goes light, and for a second the only instrument left is you.</p>
+      </div>
+    </section>
+
+    <!-- 06 PRINT / AEROSPACE -->
+    <section class="stage" data-stage="5" id="aerospace">
+      <div class="panel panel-left reveal">
+        <p class="kicker">Box 06 · Additive · layer by layer</p>
+        <h2>I studied aerospace.<br/>I never stopped looking up.</h2>
+        <p class="lede">Rockets got me first. Now it's 3D printing: building something one layer at a time until it can fly.</p>
+        <p>It's the same way I ship software. Small layers. Each one has to hold weight before the next one goes down.</p>
+      </div>
+      <div class="panel panel-left panel-caption reveal">
+        <p class="stat"><b>100 km</b> Kármán line</p>
+        <p class="stat"><b>7.8 km/s</b> to stay up</p>
+        <p class="caption">The rocket prints itself as you scroll, then launches.</p>
+      </div>
+    </section>
+
+    <!-- 07 ORBIT / CONTACT -->
+    <section class="stage stage-last" data-stage="6" id="orbit">
+      <div class="panel panel-center reveal">
+        <p class="kicker">Box 07 · Finish control</p>
+        <h2 class="huge">Still airborne.</h2>
+        <table class="timing" aria-label="Stage results">
+          <thead><tr><th>Pos</th><th>Rider</th><th>Machine</th><th>Status</th></tr></thead>
+          <tbody><tr><td>1</td><td>Prajwal P</td><td>KTM 890 ADV</td><td class="dnf">DNF · IN ORBIT</td></tr></tbody>
+        </table>
+        <p class="lede">Want to build something, ride somewhere, or talk rockets?</p>
+        <div class="contact">
+          <a class="btn" href="https://github.com/prajwalgajakesari" target="_blank" rel="noopener">GitHub ↗</a>
+          <a class="btn btn-ghost" href="https://github.com/prajwalgajakesari?tab=repositories&type=source" target="_blank" rel="noopener">All repos ↗</a>
+          <a class="btn btn-ghost" href="https://github.com/prajwalgajakesari/fde-roadmap" target="_blank" rel="noopener">FDE Roadmap ↗</a>
+        </div>
+        <p class="eggs">Try this: <kbd>W</kbd> wheelie at the start · <kbd>R</kbd> full roadbook · type <kbd>launch</kbd> anywhere</p>
+        <p class="footer">© 2026 Prajwal P · Built with Three.js · Data from MotoGenie · Symbols from all-things-rally</p>
+      </div>
+    </section>
+  </main>
+
+  <!-- Full roadbook (easter egg R) -->
+  <dialog id="rb-full" aria-label="Full roadbook">
+    <div class="rbf-head">
+      <div><b>SPECIAL STAGE · BEYOND</b><span>Rider #001 · Prajwal P · KTM 890 Adventure</span></div>
+      <button type="button" id="rbf-close" aria-label="Close roadbook">✕</button>
+    </div>
+    <table class="rbf"><thead><tr><th>Total / partial</th><th>Tulip</th><th>Notes</th></tr></thead><tbody id="rbf-body"></tbody></table>
+    <p class="rbf-foot">Generated in the style of the all-things-rally Studio · <button type="button" id="rbf-print">Print</button></p>
+  </dialog>
+
+  <noscript><style>#hud,#roadbook,#fc{display:none}</style></noscript>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

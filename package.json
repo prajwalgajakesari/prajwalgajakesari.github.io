@@ -1,0 +1,18 @@
+{
+  "name": "prajwal-p-special-stage-beyond",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "data": "python3 tools/build_data.py"
+  },
+  "dependencies": {
+    "three": "^0.180.0"
+  },
+  "devDependencies": {
+    "vite": "^7.1.0"
+  }
+}
