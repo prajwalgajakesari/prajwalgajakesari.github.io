@@ -104,32 +104,45 @@ def build_cache():
         b = c.bounds
         return b[1][2] > 12.0 and abs(c.centroid[0]) < 2.0
 
-    # STL axes: x=width, y=front(+)/back, z=up (ground z≈-7.3, top z≈13.6)
+    # STL axes: x=width, y=front(+)/back, z=up (ground z≈-7.3, top z≈13.6).
+    # KEY: everything mechanical (engine, cases, radiators, brackets, cables,
+    # subframe, linkages, small hardware) must be DARK. So the DEFAULT is ENGINE,
+    # and WHITE is only assigned to positively-identified outer bodywork panels
+    # (large, up on the skin: fairing mask, tank top, upper shrouds, fender/beak,
+    # rear side panels). This stops white leaking onto mechanical parts.
     def body_role(c):
         ex = np.sort(c.extents)[::-1]  # L, M, S
         L, M, S = ex
         cx, cy, cz = c.centroid
         b = c.bounds; zmin = b[0][2]
+        faces = len(c.faces)
         tube = M < 0.5 * L and S < 0.6 * L and L > 6
-        # silver exhaust: long, one-sided, low, toward the rear
+        big = faces >= 2500               # a real panel, not small hardware
+
+        # ── mechanical / structural first ──
         if abs(cx) > 1.0 and cy < -3 and cz < 2.5 and L > 5 and S < 3:
-            return METAL
-        if cz < 0.0:                       # engine / cases — low & central
-            return ENGINE
-        if cy < -7 and cz > 3:             # seat / tail unit
-            return SEAT
-        if abs(cx) > 3.8 and cz > 8 and cy > 3:   # handguards out by the bars
-            return BLACK
-        if tube:                           # trellis frame rails / down-tubes
-            return FRAME
-        # big orange lower radiator shrouds — the main colour break vs the white
-        if abs(cx) > 1.8 and 1.0 < cy < 7.5 and zmin < 2.0 and cz < 4.5:
-            return FRAME
-        if abs(cx) > 1.5 and cy < -3 and cz > 2.5:  # blue rear side-panel accent
-            return BLUE
-        if cy > 9.5 and cz < 4.0:          # black beak lower edge
-            return BLACK
-        return PAINT   # white: fairing mask, tank top, upper shrouds, fender, beak
+            return METAL                   # silver exhaust (long, one-sided, low, rear)
+        if tube:
+            return FRAME                   # orange trellis rails / down-tubes
+        if abs(cx) > 3.8 and cz > 8 and cy > 3:
+            return BLACK                   # handguards out by the bars
+        if abs(cx) < 2.0 and cy < -6 and cz > 3.5:
+            return SEAT                    # central seat / tail = black
+
+        # ── outer bodywork panels: only sizeable parts up on the skin ──
+        if big:
+            if abs(cx) > 1.8 and cy > 7 and cz > 6:
+                return BLUE                # small blue graphic flash on the fairing wings
+            if cy > 6.5 and cz > 3.0:
+                return PAINT               # white front mask / fairing / beak / fender
+            if cz > 4.0 and zmin > 0.5 and abs(cx) < 4.5:
+                return PAINT               # white tank top / upper shrouds
+            if cy < -6 and cz > 3.5:
+                return PAINT               # white rear side panels
+            if abs(cx) > 1.8 and 0.5 < cy < 7.5 and zmin < 2.0 and cz < 4.5:
+                return FRAME               # orange lower radiator shrouds
+
+        return ENGINE   # default: engine, cases, radiators, brackets, cables, hardware = dark
 
     groups = {"body": [], "wheel_front": [], "wheel_rear": [], "glass": []}
     for c in comps:
