@@ -7,7 +7,7 @@ import { MeshSurfaceSampler } from 'three/examples/jsm/math/MeshSurfaceSampler.j
 const V = (x, y, z = 0) => new THREE.Vector3(x, y, z);
 const UP = V(0, 1, 0);
 
-export function buildBike() {
+export function buildBike({ renderer = null, mobile = false } = {}) {
   const mats = {
     orange: new THREE.MeshStandardMaterial({ color: 0xff6a00, roughness: 0.32, metalness: 0.15 }),
     white: new THREE.MeshStandardMaterial({ color: 0xe8e5de, roughness: 0.42 }),
@@ -193,16 +193,23 @@ export function buildBike() {
   wheelie.add(bike);
   root.add(wheelie);
 
-  const obj = { root, wheelie, bike, front, rear, setBlueprint, solids, mats, credit: '' };
+  const obj = {
+    root, wheelie, bike, front, rear, setBlueprint, solids, mats, credit: '',
+    renderer, mobile, modelReady: false, _readyCbs: [],
+    onModelReady(cb) { if (obj.modelReady) cb(obj); else obj._readyCbs.push(cb); },
+  };
   loadRealBike(obj);
   return obj;
 }
 
 /**
- * If public/models/ktm.glb is present, load it and use it in place of the
- * procedural bike. Auto-normalises scale and ground contact; front direction
- * and credit come from public/models/ktm.json (facing, credit, yaw). Falls
- * back silently to the procedural bike when the file is absent or fails.
+ * If public/models/ktm.glb is present, load it in place of the procedural bike.
+ * The GLB is pre-baked by tools/stl_to_glb.py: oriented (up→+Y, fwd→+X), scaled
+ * to length ~1.95 m, grounded, split into named nodes (body / wheel_front /
+ * wheel_rear) and painted per part with vertex colours. ktm.json points at the
+ * model + credit; ktm.parts.json carries the axle positions (trimesh drops node
+ * translations on export) so the wheels can spin about their hubs. Falls back
+ * silently to the procedural bike when anything is missing.
  */
 async function loadRealBike(obj) {
   let cfg = {};
@@ -212,63 +219,56 @@ async function loadRealBike(obj) {
     cfg = await r.json();
   } catch { return; }
   const url = cfg.file || 'models/ktm.glb';
+  let parts = {};
+  if (cfg.parts) { try { parts = await (await fetch(cfg.parts, { cache: 'no-store' })).json(); } catch {} }
   let GLTFLoader;
   try { ({ GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js')); } catch { return; }
-  new GLTFLoader().load(url, (gltf) => {
+  new GLTFLoader().load(url, async (gltf) => {
     const model = gltf.scene;
-    // orient: print STLs point an arbitrary way. cfg.up + cfg.front name the
-    // model-space axes that should become world up (+y) and forward (+x); the
-    // site rebases the model onto them. Falls back to rotX/rotY/rotZ (deg).
-    const ax = (v, def) => { const t = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1], '-x': [-1, 0, 0], '-y': [0, -1, 0], '-z': [0, 0, -1] }; return new THREE.Vector3(...(t[v] || def)); };
-    if (cfg.up || cfg.front) {
-      const up = ax(cfg.up, [0, 1, 0]).normalize();
-      const fwd = ax(cfg.front, [1, 0, 0]).normalize();
-      const side = new THREE.Vector3().crossVectors(fwd, up).normalize();
-      const trueUp = new THREE.Vector3().crossVectors(side, fwd).normalize();
-      // basis(model→world) maps model fwd/up onto +x/+y; invert to rotate model
-      const m = new THREE.Matrix4().makeBasis(fwd, trueUp, side).transpose();
-      model.quaternion.setFromRotationMatrix(m);
-    } else {
-      const d = THREE.MathUtils.degToRad;
-      model.rotation.set(d(cfg.rotX ?? 0), d(cfg.rotY ?? cfg.yaw ?? 0), d(cfg.rotZ ?? 0));
-    }
-    model.updateMatrixWorld(true);
-    let box = new THREE.Box3().setFromObject(model);
-    const size = box.getSize(new THREE.Vector3());
-    const length = Math.max(size.x, size.z); // longest horizontal axis
-    const s = (cfg.length ?? 1.95) / (length || 1);
-    model.scale.setScalar(s);
-    model.updateMatrixWorld(true);
-    box = new THREE.Box3().setFromObject(model);
-    const c = box.getCenter(new THREE.Vector3());
-    model.position.x -= c.x; model.position.z -= c.z;
-    model.position.y -= box.min.y; // ground contact
+    const wf = model.getObjectByName('wheel_front');
+    const wr = model.getObjectByName('wheel_rear');
+    if (!(wf && wr)) return legacyLoad(obj, model, cfg); // pre-baked model only
 
-    // one clean CAD-orange material so the print model catches scene light
-    const hex = (c, def) => (c == null ? def : typeof c === 'number' ? c : Number(c));
-    const skin = new THREE.MeshStandardMaterial({
-      color: new THREE.Color(hex(cfg.color, 0xc0450a)), metalness: 0.0, roughness: 0.55,
-      emissive: new THREE.Color(hex(cfg.emissive, 0x2a0e00)), emissiveIntensity: 0.6,
-      flatShading: false,
-    });
-    skin.userData.baseOpacity = 1;
-    // blueprint edges so the intro wireframe still works
+    // place wheel hubs on their axles (trimesh export loses the node translation)
+    if (parts.axles?.front) wf.position.fromArray(parts.axles.front);
+    if (parts.axles?.rear) wr.position.fromArray(parts.axles.rear);
+    model.updateMatrixWorld(true);
+
+    // studio reflections — attached PER MATERIAL, never as scene.environment
+    // (that would leak onto every MeshStandard material in the other stages).
+    let envMap = null;
+    if (obj.renderer) {
+      try {
+        const { RoomEnvironment } = await import('three/examples/jsm/environments/RoomEnvironment.js');
+        const pmrem = new THREE.PMREMGenerator(obj.renderer);
+        envMap = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
+      } catch { /* envMap optional */ }
+    }
+
+    // two materials keyed off the baked vertex colours: clearcoat paint for the
+    // body, a metallic/rubber blend for the wheels.
+    const paint = obj.mobile
+      ? new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.1, roughness: 0.52, envMap, envMapIntensity: 0.4 })
+      : new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.1, roughness: 0.5, clearcoat: 0.5, clearcoatRoughness: 0.35, envMap, envMapIntensity: 0.45 });
+    const wheelMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.45, roughness: 0.55, envMap, envMapIntensity: 0.4 });
+    paint.userData.baseOpacity = 1; wheelMat.userData.baseOpacity = 1;
+    const realMats = [paint, wheelMat];
+
     const edgeMat = new THREE.LineBasicMaterial({ color: 0x8be9ff, transparent: true, opacity: 0, depthWrite: false });
-    const realMats = [skin];
     model.traverse((o) => {
       if (!o.isMesh) return;
-      o.castShadow = false;
+      o.castShadow = false; o.frustumCulled = false;
       if (!o.geometry.getAttribute('normal')) o.geometry.computeVertexNormals();
-      o.material = skin;
-      try { const e = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 46), edgeMat); e.raycast = () => {}; o.add(e); } catch {}
+      const isWheel = /wheel/.test(o.name) || (o.parent && /wheel/.test(o.parent.name));
+      o.material = isWheel ? wheelMat : paint;
+      try { const e = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 44), edgeMat); e.raycast = () => {}; o.add(e); } catch {}
     });
-    console.log('[bike] real model ready · world size', new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()).toArray().map((n) => n.toFixed(2)).join(' × '));
 
     obj.bike.clear();
     obj.bike.add(model);
     obj.solids.length = 0;
     model.traverse((o) => { if (o.isMesh) obj.solids.push(o); });
-    obj.front = obj.rear = new THREE.Group(); // wheel spin no-ops on the scan
+    obj.front = wf; obj.rear = wr; // real hubs — the stages' rotation.z now spins them
     obj.credit = cfg.credit || '';
     const creditEl = document.getElementById('credit');
     if (creditEl && obj.credit) creditEl.innerHTML = ` · ${obj.credit}`;
@@ -282,7 +282,36 @@ async function loadRealBike(obj) {
         mt.depthWrite = k > 0.5;
       }
     };
+
+    console.log('[bike] real 890 ready · body/wheel_front/wheel_rear · size',
+      new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()).toArray().map((n) => n.toFixed(2)).join(' × '));
+    obj.modelReady = true;
+    obj._readyCbs.splice(0).forEach((cb) => { try { cb(obj); } catch (e) { console.warn(e); } });
   }, undefined, () => { /* load failed — procedural stays */ });
+}
+
+/** Legacy single-mesh path for a GLB without the baked wheel nodes. */
+function legacyLoad(obj, model, cfg) {
+  const hex = (c, def) => (c == null ? def : typeof c === 'number' ? c : Number(c));
+  const d = THREE.MathUtils.degToRad;
+  model.rotation.set(d(cfg.rotX ?? 0), d(cfg.rotY ?? 0), d(cfg.rotZ ?? 0));
+  model.updateMatrixWorld(true);
+  let box = new THREE.Box3().setFromObject(model);
+  const size = box.getSize(new THREE.Vector3());
+  model.scale.setScalar((cfg.length ?? 1.95) / (Math.max(size.x, size.z) || 1));
+  model.updateMatrixWorld(true);
+  box = new THREE.Box3().setFromObject(model);
+  const c = box.getCenter(new THREE.Vector3());
+  model.position.x -= c.x; model.position.z -= c.z; model.position.y -= box.min.y;
+  const skin = new THREE.MeshStandardMaterial({ color: new THREE.Color(hex(cfg.color, 0xc0450a)), metalness: 0.05, roughness: 0.5 });
+  skin.userData.baseOpacity = 1;
+  model.traverse((o) => { if (o.isMesh) { if (!o.geometry.getAttribute('normal')) o.geometry.computeVertexNormals(); o.material = skin; } });
+  obj.bike.clear(); obj.bike.add(model);
+  obj.solids.length = 0; model.traverse((o) => { if (o.isMesh) obj.solids.push(o); });
+  obj.front = obj.rear = new THREE.Group();
+  obj.setBlueprint = (k) => { const t = k < 0.999; if (skin.transparent !== t) { skin.transparent = t; skin.needsUpdate = true; } skin.opacity = k; skin.depthWrite = k > 0.5; };
+  obj.modelReady = true;
+  obj._readyCbs.splice(0).forEach((cb) => { try { cb(obj); } catch {} });
 }
 
 /** Sample N points over the bike's surfaces (local space, weighted by area). */

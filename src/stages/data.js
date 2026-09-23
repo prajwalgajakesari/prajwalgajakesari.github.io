@@ -1,6 +1,6 @@
 // Stage 02 (India from MotoGenie data) and stage 03 (Manali → Khardung La, real elevation).
 import * as THREE from 'three';
-import { clamp, lerp, smooth, ease, fbm, rng, glowTexture, textSprite, COLOR_OUT } from '../util.js';
+import { clamp, lerp, smooth, ease, fbm, noise, rng, glowTexture, textSprite, COLOR_OUT } from '../util.js';
 
 const K = 0.55; // world units per degree
 export const lonLatToMap = (lon, lat) => [(lon - 80) * K, -(lat - 22) * K];
@@ -147,17 +147,31 @@ export function himalayaStage(ctx) {
   };
   const pathY = (km) => (elev(km) - 2000) / 1000 * 3.2;
   const P = (km) => new THREE.Vector3(pathX(km), pathY(km), pathZ(km));
+  // ridged multifractal → sharp Himalayan ridgelines instead of soft fbm blobs
+  const ridged = (x, z, oct = 5) => {
+    let s = 0, amp = 0.5, f = 1, norm = 0, prev = 1;
+    for (let i = 0; i < oct; i++) {
+      let n = 1 - Math.abs(noise(x * f + 11, z * f + 7) * 2 - 1);
+      n *= n;                       // sharpen the crest
+      s += amp * n * prev;          // concentrate detail on the ridges
+      prev = clamp(n * 1.4);
+      norm += amp; amp *= 0.5; f *= 2.07;
+    }
+    return s / norm;
+  };
   const heightAt = (x, z) => {
     const km = x / XS + state.total / 2;
     const d = Math.abs(z - pathZ(clamp(km, 0, state.total)));
-    const m = Math.pow(fbm(x * 0.055 + 4, z * 0.055, 5), 1.5) * 16 * smooth(0.9, 12, d) + smooth(10, 30, d) * 5;
+    // low valley floor by the road, towering ridges to either side
+    const relief = ridged(x * 0.05 + 4, z * 0.05);
+    const m = relief * 30 * smooth(2, 18, d) + smooth(9, 30, d) * 4;
     return pathY(km) - 0.06 + m;
   };
 
   const uniforms = {
-    uSun: { value: new THREE.Vector3(0.5, 0.35, -0.6) },
-    uFog: { value: new THREE.Color(0x2a3048) },
-    uFogNear: { value: 22 }, uFogFar: { value: 85 },
+    uSun: { value: new THREE.Vector3(0.55, 0.30, -0.72) },
+    uFog: { value: new THREE.Color(0x2b2f4c) },
+    uFogNear: { value: 26 }, uFogFar: { value: 105 },
     uRider: { value: new THREE.Vector3() },
   };
   const tmat = new THREE.ShaderMaterial({
@@ -168,20 +182,37 @@ export function himalayaStage(ctx) {
     fragmentShader: /* glsl */ `
       uniform vec3 uSun; uniform vec3 uFog; uniform float uFogNear, uFogFar; uniform vec3 uRider;
       varying vec3 vW; varying vec3 vN;
-      float iso(float v) { float f = fract(v); float w = fwidth(v); return 1.0 - smoothstep(0.0, w * 1.3, min(f, 1.0 - f)); }
+      float iso(float v) { float f = fract(v); float w = fwidth(v); return 1.0 - smoothstep(0.0, w * 1.2, min(f, 1.0 - f)); }
       void main() {
         vec3 n = normalize(vN);
-        float dif = max(dot(n, normalize(uSun)), 0.0);
+        vec3 sd = normalize(uSun);
+        float dif = max(dot(n, sd), 0.0);
+        float sky = 0.5 + 0.5 * n.y;                       // hemispheric sky term
         float h = vW.y;
-        vec3 rock = mix(vec3(0.05, 0.045, 0.05), vec3(0.16, 0.14, 0.13), clamp(h / 9.0, 0.0, 1.0));
-        float snow = smoothstep(11.5, 15.0, h + (n.y - 0.75) * 4.0);
-        vec3 col = mix(rock, vec3(0.42, 0.47, 0.56), snow) * (0.2 + 0.8 * dif);
-        col += iso(h * 1.6) * vec3(0.25, 0.55, 0.8) * 0.28;
-        col += iso(h * 0.32) * vec3(1.0, 0.45, 0.15) * 0.45;
+
+        // rock: cool slate in the valley → warm lit granite up high, streaked by slope
+        vec3 rock = mix(vec3(0.085, 0.10, 0.14), vec3(0.36, 0.30, 0.25), smoothstep(-1.0, 16.0, h));
+        rock *= 0.8 + 0.35 * smoothstep(0.2, 0.9, n.y);     // darker on the cliffs
+        // snow settles on the high, gentle faces; blue in shade, bright in sun
+        float snowMask = smoothstep(9.0, 16.0, h) * smoothstep(0.48, 0.82, n.y);
+        vec3 snow = mix(vec3(0.50, 0.58, 0.76), vec3(0.96, 0.98, 1.05), dif);
+        vec3 albedo = mix(rock, snow, snowMask);
+
+        // dawn key + cool sky fill
+        vec3 keyCol = vec3(1.0, 0.72, 0.46);
+        vec3 skyCol = vec3(0.34, 0.44, 0.66);
+        vec3 col = albedo * (skyCol * sky * 0.55 + keyCol * dif * 1.2 + 0.05);
+        col += keyCol * pow(dif, 2.0) * smoothstep(7.0, 22.0, h) * 0.28;   // alpenglow on sunlit ridges
+
+        float camd = length(vW - cameraPosition);
+        float near = 1.0 - smoothstep(18.0, 72.0, camd);
+        col += iso(h * 0.5) * vec3(0.36, 0.72, 0.98) * 0.09 * near;         // subtle altitude contours
         float rd = length(vW - uRider);
-        col += vec3(1.0, 0.4, 0.08) * exp(-rd * rd * 0.35) * 0.8;
-        float fg = smoothstep(uFogNear, uFogFar, length(vW - cameraPosition));
-        gl_FragColor = vec4(mix(col, uFog, fg), 1.0);
+        col += vec3(1.0, 0.46, 0.14) * exp(-rd * rd * 0.9) * 0.28;          // tight rider warmth
+
+        float fg = smoothstep(uFogNear, uFogFar, camd);
+        col = mix(col, uFog, fg);
+        gl_FragColor = vec4(col, 1.0);
         ${COLOR_OUT}
       }`,
   });
@@ -193,16 +224,16 @@ export function himalayaStage(ctx) {
   g.add(road, roadGhost);
 
   const rider = new THREE.Group();
-  rider.add(new THREE.Mesh(new THREE.SphereGeometry(0.09, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffe0b0, toneMapped: false })));
-  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture('rgba(255,140,40,1)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
-  halo.scale.set(1.6, 1.6, 1);
+  rider.add(new THREE.Mesh(new THREE.SphereGeometry(0.07, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffe0b0, toneMapped: false })));
+  const halo = new THREE.Sprite(new THREE.SpriteMaterial({ map: glowTexture('rgba(255,150,60,1)'), transparent: true, depthWrite: false, blending: THREE.AdditiveBlending }));
+  halo.scale.set(0.7, 0.7, 1);
   rider.add(halo);
   g.add(rider);
 
   const hemi = new THREE.HemisphereLight(0x8090c0, 0x201810, 0.4);
   const d1 = new THREE.DirectionalLight(0xffc0a0, 1); d1.position.set(20, 20, -30);
   const d2 = new THREE.DirectionalLight(0x6080ff, 0.4); d2.position.set(-20, 10, 20);
-  const pl = new THREE.PointLight(0xff8a2b, 2, 6, 2);
+  const pl = new THREE.PointLight(0xff8a2b, 1.1, 4, 2);
   rider.add(pl);
   g.add(hemi, d1, d2);
 
@@ -263,7 +294,7 @@ export function himalayaStage(ctx) {
       camLook.copy(pos).addScaledVector(dir, 3).add(new THREE.Vector3(0, 0.4, 0));
       camera.position.copy(camPos);
       camera.lookAt(camLook);
-      halo.material.opacity = 0.7 + Math.sin(time * 6) * 0.2;
+      halo.material.opacity = 0.5 + Math.sin(time * 6) * 0.15;
     },
     hud(t) { return { alt: `${Math.round(elev(km)).toLocaleString('en-IN')} m`, odoKm: 64.8 + km }; },
     fc: [[0, 'Profile loaded: Manali → Khardung La, real elevation.'], [0.35, 'Oxygen thinning. Pilot unbothered.'], [0.7, 'Summit in sight. Next box: the machine.']],

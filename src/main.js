@@ -9,7 +9,7 @@ import { mapStage, himalayaStage } from './stages/data.js';
 import { modelStage } from './stages/model.js';
 import { machineStage, printStage, orbitStage } from './stages/space.js';
 import { Engine } from './audio.js';
-import { clamp, lerp, smooth, rng } from './util.js';
+import { clamp, lerp, smooth, ease, rng } from './util.js';
 
 const $ = (id) => document.getElementById(id);
 const mobile = matchMedia('(max-width: 760px)').matches || matchMedia('(pointer: coarse)').matches;
@@ -118,6 +118,8 @@ const sky = new THREE.Mesh(new THREE.SphereGeometry(900, 32, 16), new THREE.Shad
 sky.frustumCulled = false;
 sky.renderOrder = -2;
 scene.add(sky);
+// eased sky target so stage changes cross-fade the horizon instead of snapping
+const skyTarget = { top: new THREE.Color(), horizon: new THREE.Color(), bottom: new THREE.Color(), sunDir: new THREE.Vector3(0, 1, 0), sunColor: new THREE.Color(), sunAmt: 0 };
 
 const SN = mobile ? 1500 : 3500;
 const starGeo = new THREE.BufferGeometry();
@@ -154,7 +156,7 @@ Promise.all([
 ]).then(([p, routes, prof]) => resolveReady({ places: new Int16Array(p), routes, prof }))
   .catch((e) => console.warn('data load failed', e));
 
-const bike = buildBike();
+const bike = buildBike({ renderer, mobile });
 scene.add(bike.root);
 const ctx = { bike, ready, mobile, reduced, dpr };
 const stages = renderer ? [startStage(ctx), mapStage(ctx), himalayaStage(ctx), modelStage(ctx), machineStage(ctx), printStage(ctx), orbitStage(ctx)] : [];
@@ -234,7 +236,7 @@ addEventListener('keydown', (e) => {
 });
 
 // ───────────────────────── loop ─────────────────────────
-let cur = -1, fcKey = '';
+let cur = -1, fcKey = '', firstStage = true;
 const clock = new THREE.Clock();
 const shake = new THREE.Vector3();
 function frame() {
@@ -259,9 +261,14 @@ function frame() {
     if (st) {
       st.group.visible = true;
       scene.fog = st.fog ? new THREE.Fog(st.fog[0], st.fog[1], st.fog[2]) : null;
-      const u = sky.material.uniforms;
-      u.top.value.set(st.sky.top); u.horizon.value.set(st.sky.horizon); u.bottom.value.set(st.sky.bottom);
-      u.sunDir.value.fromArray(st.sky.sunDir); u.sunColor.value.set(st.sky.sunColor); u.sunAmt.value = st.sky.sun;
+      skyTarget.top.set(st.sky.top); skyTarget.horizon.set(st.sky.horizon); skyTarget.bottom.set(st.sky.bottom);
+      skyTarget.sunDir.fromArray(st.sky.sunDir); skyTarget.sunColor.set(st.sky.sunColor); skyTarget.sunAmt = st.sky.sun;
+      if (firstStage) { // no cross-fade into the very first stage
+        const u = sky.material.uniforms;
+        u.top.value.copy(skyTarget.top); u.horizon.value.copy(skyTarget.horizon); u.bottom.value.copy(skyTarget.bottom);
+        u.sunDir.value.copy(skyTarget.sunDir); u.sunColor.value.copy(skyTarget.sunColor); u.sunAmt.value = skyTarget.sunAmt;
+        firstStage = false;
+      }
       starsTarget = st.stars;
       if (st.bike) { bike.root.visible = true; bike.root.position.set(0, 0, 0); bike.root.quaternion.identity(); st.enter?.({ bike }); }
       else bike.root.visible = false;
@@ -295,15 +302,21 @@ function frame() {
   }
   sky.position.copy(camera.position);
   stars.position.copy(camera.position);
+  // ease the sky toward the active stage's palette (cross-fades the horizon)
+  const su = sky.material.uniforms, sk = Math.min(1, dt * 3.2);
+  su.top.value.lerp(skyTarget.top, sk); su.horizon.value.lerp(skyTarget.horizon, sk); su.bottom.value.lerp(skyTarget.bottom, sk);
+  su.sunDir.value.lerp(skyTarget.sunDir, sk); su.sunColor.value.lerp(skyTarget.sunColor, sk);
+  su.sunAmt.value = lerp(su.sunAmt.value, skyTarget.sunAmt, sk);
   starMat.uniforms.uOp.value = lerp(starMat.uniforms.uOp.value, starsTarget, Math.min(1, dt * 4));
   starMat.uniforms.uTime.value = time;
 
-  // veil: a dip to black between stages
+  // veil: an eased dip toward dark between stages, wide enough to feel like a
+  // breath rather than a blink but still peaking at the swap to hide it
   if (st) {
     const last = stages.length - 1;
-    const fin = i > 0 ? 1 - smooth(0, 0.05, t) : 0;
-    const fout = i < last ? smooth(0.95, 1, t) : 0;
-    veil.style.opacity = Math.max(fin, fout).toFixed(3);
+    const fin = i > 0 ? 1 - smooth(0, 0.09, t) : 0;
+    const fout = i < last ? smooth(0.91, 1, t) : 0;
+    veil.style.opacity = ease(Math.max(fin, fout)).toFixed(3);
   }
 
   // telemetry

@@ -37,6 +37,13 @@ export function machineStage(ctx) {
   geo.setAttribute('position', new THREE.BufferAttribute(aA, 3));
   geo.setAttribute('aB', new THREE.BufferAttribute(aB, 3));
   geo.setAttribute('aRand', new THREE.BufferAttribute(rnd, 1));
+  // sampleBike() ran at build time on the procedural fallback; re-sample the
+  // real 890 the moment it finishes loading so the morph starts from its shape.
+  ctx.bike.onModelReady(() => {
+    const s = sampleBike(ctx.bike, N);
+    for (let i = 0; i < N; i++) { aA[i * 3] = s[i * 3] * S; aA[i * 3 + 1] = (s[i * 3 + 1] - 0.72) * S; aA[i * 3 + 2] = s[i * 3 + 2] * S; }
+    geo.attributes.position.needsUpdate = true;
+  });
   const pmat = new THREE.ShaderMaterial({
     uniforms: { uMorph: { value: 0 }, uTime: { value: 0 }, uPx: { value: 2.2 * ctx.dpr } },
     vertexShader: /* glsl */ `
