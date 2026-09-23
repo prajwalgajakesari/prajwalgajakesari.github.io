@@ -25,18 +25,21 @@ OUT = _pos[1] if len(_pos) > 1 else "public/models/ktm.glb"
 FRESH = "--fresh" in sys.argv
 LENGTH = 1.95  # target wheelbase-ish length in metres
 
-# role ids and their sRGB colours — tweak freely, re-run is fast (cache reused)
-PAINT, FRAME, ENGINE, SEAT, TYRE, RIM = range(6)
+# role ids and their sRGB colours — tweak freely, re-run is fast (cache reused).
+# Matches the real 2023 KTM 890 Adventure R "Atlantic" livery: white bodywork,
+# KTM orange frame + graphics, blue graphic accents, black wheels/engine.
+PAINT, FRAME, ENGINE, SEAT, TYRE, RIM, BLUE = range(7)
 PALETTE = {
-    PAINT:  0xE9E7E1,  # KTM white bodywork
-    FRAME:  0xF4590F,  # KTM orange trellis frame
-    ENGINE: 0x2E3034,  # LC8c dark metal
-    SEAT:   0x171719,  # seat / tail
-    TYRE:   0x0C0C0E,  # rubber
-    RIM:    0x70747A,  # gunmetal rim / disc / hub
+    PAINT:  0xF3F2EE,  # crisp white bodywork
+    FRAME:  0xFF5A00,  # vivid KTM racing orange (frame + orange graphics)
+    ENGINE: 0x26282C,  # LC8c dark metal
+    SEAT:   0x121214,  # seat / tail
+    TYRE:   0x0B0B0D,  # rubber
+    RIM:    0x3C3F45,  # dark spoked rim (the R runs black rims)
+    BLUE:   0x1F4FA6,  # KTM Atlantic blue graphic accent
 }
 # per-role material hint: 0=paint(clearcoat) 1=metal 2=rubber  (used by the loader)
-MATCLASS = {PAINT: 0, FRAME: 0, ENGINE: 1, SEAT: 2, TYRE: 2, RIM: 1}
+MATCLASS = {PAINT: 0, FRAME: 0, ENGINE: 1, SEAT: 2, TYRE: 2, RIM: 1, BLUE: 0}
 
 
 def srgb_to_linear(hexcol):
@@ -104,6 +107,10 @@ def build_cache():
             return ENGINE
         if tube:  # trellis frame rails / down-tubes
             return FRAME
+        if cy > 9.5 and 2.5 < cz < 6.5:      # orange beak / nose graphic
+            return FRAME
+        if abs(cx) > 2.2 and -6 < cy < 3 and 0.5 < cz < 5.0:  # blue side-shroud accent
+            return BLUE
         return PAINT
 
     groups = {"body": [], "wheel_front": [], "wheel_rear": []}
