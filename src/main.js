@@ -174,10 +174,42 @@ if (renderer) {
     composer.addPass(new UnrealBloomPass(new THREE.Vector2(innerWidth, innerHeight), 0.55, 0.55, 0.82));
     composer.addPass(new OutputPass());
   }
-  // warm every shader up front so stage changes don't hitch
-  stages.forEach((s) => (s.group.visible = true));
-  try { renderer.compile(scene, camera); } catch (e) { /* non-fatal */ }
+}
+
+// Warm shaders PER STAGE (only that stage's group + bike visible) so each
+// program is compiled for its own light setup. Compiling with every stage
+// visible at once builds a combined-lights variant that every stage then
+// re-compiles on its first scroll-in — that was the ~400 ms hitch at each
+// boundary. Re-run once the async bike + terrain exist.
+const warmRT = renderer ? new THREE.WebGLRenderTarget(8, 8) : null;
+function warmStages() {
+  if (!renderer) return;
+  // compile() alone left the first real draw to link programs + upload buffers
+  // (the 72-155 ms hitch). Actually RENDER each stage once to a tiny offscreen
+  // target: that forces the full compile + VBO upload with no on-screen flash.
+  const vis = stages.map((s) => s.group.visible); // the main loop only re-shows a
+  const bvis = bike.root.visible;                 // group on a transition, so restore
+  const prevRT = renderer.getRenderTarget();       // whatever was showing
+  renderer.setRenderTarget(warmRT);
   stages.forEach((s) => (s.group.visible = false));
+  for (const s of stages) {
+    s.group.visible = true;
+    bike.root.visible = !!s.bike;
+    if (s.bike) s.group.add(bike.root);
+    try { renderer.render(scene, camera); } catch (e) { /* non-fatal */ }
+    s.group.visible = false;
+  }
+  stages.forEach((s, idx) => (s.group.visible = vis[idx]));
+  renderer.setRenderTarget(prevRT);
+  scene.add(bike.root);
+  bike.root.visible = bvis;
+}
+if (renderer) {
+  warmStages(); // static stages up front
+  let rewarmed = false;
+  const rewarm = () => { if (rewarmed || !renderer) return; rewarmed = true; requestAnimationFrame(warmStages); };
+  Promise.all([ready.catch(() => {}), new Promise((r) => bike.onModelReady(() => r()))]).then(rewarm);
+  setTimeout(rewarm, 3500); // backstop if the real model never loads
 }
 
 // ───────────────────────── scroll model ─────────────────────────
