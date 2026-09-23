@@ -262,6 +262,13 @@ async function loadRealBike(obj) {
         .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
           metalnessFactor = _metalMix * 0.85;`);
     };
+    // translucent smoke windscreen (its own node so it isn't part of the paint mesh)
+    const glassMat = new THREE.MeshPhysicalMaterial({
+      color: 0x9fb6c6, metalness: 0.0, roughness: 0.08,
+      transparent: true, opacity: 0.34, depthWrite: false,
+      envMap, envMapIntensity: 0.9, side: THREE.DoubleSide,
+    });
+    glassMat.userData.baseOpacity = 0.34;
     paint.userData.baseOpacity = 1; wheelMat.userData.baseOpacity = 1;
     const realMats = [paint, wheelMat];
 
@@ -270,8 +277,11 @@ async function loadRealBike(obj) {
       if (!o.isMesh) return;
       o.castShadow = false; o.frustumCulled = false;
       if (!o.geometry.getAttribute('normal')) o.geometry.computeVertexNormals();
-      const isWheel = /wheel/.test(o.name) || (o.parent && /wheel/.test(o.parent.name));
-      o.material = isWheel ? wheelMat : paint;
+      const nm = `${o.name} ${o.parent ? o.parent.name : ''}`;
+      const isWheel = /wheel/.test(nm);
+      const isGlass = /glass/.test(nm);
+      o.material = isGlass ? glassMat : isWheel ? wheelMat : paint;
+      if (isGlass) { o.renderOrder = 2; o.userData.noSample = true; }
       try { const e = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 44), edgeMat); e.raycast = () => {}; o.add(e); } catch {}
     });
 
@@ -292,9 +302,10 @@ async function loadRealBike(obj) {
         mt.opacity = (mt.userData.baseOpacity ?? 1) * k;
         mt.depthWrite = k > 0.5;
       }
+      glassMat.opacity = glassMat.userData.baseOpacity * k; // stays translucent, fades with the intro
     };
 
-    console.log('[bike] real 890 ready · body/wheel_front/wheel_rear · size',
+    console.log('[bike] real 890 ready · body/wheel_front/wheel_rear/glass · size',
       new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()).toArray().map((n) => n.toFixed(2)).join(' × '));
     obj.modelReady = true;
     obj._readyCbs.splice(0).forEach((cb) => { try { cb(obj); } catch (e) { console.warn(e); } });

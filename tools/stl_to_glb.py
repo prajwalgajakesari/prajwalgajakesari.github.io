@@ -26,20 +26,25 @@ FRESH = "--fresh" in sys.argv
 LENGTH = 1.95  # target wheelbase-ish length in metres
 
 # role ids and their sRGB colours — tweak freely, re-run is fast (cache reused).
-# Matches the real 2023 KTM 890 Adventure R "Atlantic" livery: white bodywork,
-# KTM orange frame + graphics, blue graphic accents, black wheels/engine.
-PAINT, FRAME, ENGINE, SEAT, TYRE, RIM, BLUE = range(7)
+# Matches the real 2023 KTM 890 Adventure R "Atlantic" livery: white upper
+# bodywork, big KTM-orange lower shrouds + frame, blue graphic accents, black
+# plastics (handguards/seat/beak edge), silver skid plate + exhaust, dark
+# engine, black wheels, and a translucent smoke windscreen.
+PAINT, FRAME, ENGINE, SEAT, TYRE, RIM, BLUE, BLACK, METAL, GLASS = range(10)
 PALETTE = {
-    PAINT:  0xF3F2EE,  # crisp white bodywork
-    FRAME:  0xFF5A00,  # vivid KTM racing orange (frame + orange graphics)
-    ENGINE: 0x26282C,  # LC8c dark metal
+    PAINT:  0xEDECE8,  # white bodywork
+    FRAME:  0xFF5A00,  # vivid KTM racing orange (frame + lower shrouds + graphics)
+    ENGINE: 0x24262A,  # LC8c dark metal
     SEAT:   0x121214,  # seat / tail
     TYRE:   0x0B0B0D,  # rubber
-    RIM:    0x3C3F45,  # dark spoked rim (the R runs black rims)
-    BLUE:   0x1F4FA6,  # KTM Atlantic blue graphic accent
+    RIM:    0x34373C,  # dark spoked rim (the R runs black rims)
+    BLUE:   0x1E49A0,  # KTM Atlantic blue graphic accent
+    BLACK:  0x161719,  # black plastics: handguards, beak edge, panels
+    METAL:  0x9CA0A6,  # brushed aluminium skid plate / exhaust
+    GLASS:  0x86A6BE,  # smoke windscreen tint (loader gives it a glass material)
 }
-# per-role material hint: 0=paint(clearcoat) 1=metal 2=rubber  (used by the loader)
-MATCLASS = {PAINT: 0, FRAME: 0, ENGINE: 1, SEAT: 2, TYRE: 2, RIM: 1, BLUE: 0}
+# per-role material hint: 0=paint(clearcoat) 1=metal 2=rubber 3=glass
+MATCLASS = {PAINT: 0, FRAME: 0, ENGINE: 1, SEAT: 2, TYRE: 2, RIM: 1, BLUE: 0, BLACK: 2, METAL: 1, GLASS: 3}
 
 
 def srgb_to_linear(hexcol):
@@ -94,31 +99,46 @@ def build_cache():
         r = max(c.extents[1], c.extents[2]) / 2
         return TYRE if r > 0.82 * maxrad else RIM
 
+    # windscreen = the front panel that reaches the very top of the bike
+    def is_glass(c):
+        b = c.bounds
+        return b[1][2] > 12.0 and abs(c.centroid[0]) < 2.0
+
+    # STL axes: x=width, y=front(+)/back, z=up (ground z≈-7.3, top z≈13.6)
     def body_role(c):
         ex = np.sort(c.extents)[::-1]  # L, M, S
         L, M, S = ex
         cx, cy, cz = c.centroid
+        b = c.bounds; zmin = b[0][2]
         tube = M < 0.5 * L and S < 0.6 * L and L > 6
-        if cz < -0.4:  # engine / cases / skid — everything low & central
+        # silver exhaust: long, one-sided, low, toward the rear
+        if abs(cx) > 1.0 and cy < -3 and cz < 2.5 and L > 5 and S < 3:
+            return METAL
+        if cz < 0.0:                       # engine / cases — low & central
             return ENGINE
-        if cy < -7 and cz > 3:  # seat / tail unit at the back, up high
+        if cy < -7 and cz > 3:             # seat / tail unit
             return SEAT
-        if tube and abs(cx) > 2.5 and cy < 0:  # one-sided low tube = exhaust
-            return ENGINE
-        if tube:  # trellis frame rails / down-tubes
+        if abs(cx) > 3.8 and cz > 8 and cy > 3:   # handguards out by the bars
+            return BLACK
+        if tube:                           # trellis frame rails / down-tubes
             return FRAME
-        if cy > 9.5 and 2.5 < cz < 6.5:      # orange beak / nose graphic
+        # big orange lower radiator shrouds — the main colour break vs the white
+        if abs(cx) > 1.8 and 1.0 < cy < 7.5 and zmin < 2.0 and cz < 4.5:
             return FRAME
-        if abs(cx) > 2.2 and -6 < cy < 3 and 0.5 < cz < 5.0:  # blue side-shroud accent
+        if abs(cx) > 1.5 and cy < -3 and cz > 2.5:  # blue rear side-panel accent
             return BLUE
-        return PAINT
+        if cy > 9.5 and cz < 4.0:          # black beak lower edge
+            return BLACK
+        return PAINT   # white: fairing mask, tank top, upper shrouds, fender, beak
 
-    groups = {"body": [], "wheel_front": [], "wheel_rear": []}
+    groups = {"body": [], "wheel_front": [], "wheel_rear": [], "glass": []}
     for c in comps:
         if near(c.centroid, faxle):
             groups["wheel_front"].append(c)
         elif near(c.centroid, raxle):
             groups["wheel_rear"].append(c)
+        elif is_glass(c):
+            groups["glass"].append(c)
         else:
             groups["body"].append(c)
     # true tyre radius = widest part in each wheel (seed may be the rim, not the tyre)
@@ -128,11 +148,12 @@ def build_cache():
     roles = {
         "wheel_front": [wheel_role(c, fmax) for c in groups["wheel_front"]],
         "wheel_rear": [wheel_role(c, rmax) for c in groups["wheel_rear"]],
+        "glass": [GLASS for _ in groups["glass"]],
         "body": [body_role(c) for c in groups["body"]],
     }
 
     # decimation budget per group (wheels keep spokes/tread so spin reads)
-    budget = {"body": 50000, "wheel_front": 11000, "wheel_rear": 11000}
+    budget = {"body": 50000, "wheel_front": 11000, "wheel_rear": 11000, "glass": 9000}
     out = {"faxle": faxle, "raxle": raxle}
     for name in groups:
         parts, rids = groups[name], roles[name]
@@ -169,7 +190,7 @@ else:
 # ── bake orientation / scale / ground from the whole model ────────────────────
 # stl(x=width, y=fore/aft, z=up) → world(x=forward, y=up, z=width)
 Rrot = np.array([[0, 1, 0], [0, 0, 1], [1, 0, 0]], float)
-allV = np.vstack([data[n + "_v"] for n in ("body", "wheel_front", "wheel_rear")])
+allV = np.vstack([data[n + "_v"] for n in ("body", "wheel_front", "wheel_rear", "glass")])
 w = allV @ Rrot.T
 s = LENGTH / (w[:, 0].max() - w[:, 0].min())
 w *= s
@@ -190,7 +211,7 @@ def axle_world(axle):
 
 scene = trimesh.Scene()
 axles = {}
-for name in ("body", "wheel_front", "wheel_rear"):
+for name in ("body", "wheel_front", "wheel_rear", "glass"):
     v = to_world(data[name + "_v"])
     f = data[name + "_f"]
     rid = data[name + "_r"]
