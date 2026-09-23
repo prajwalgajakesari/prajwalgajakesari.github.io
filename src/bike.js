@@ -216,30 +216,53 @@ async function loadRealBike(obj) {
   try { ({ GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js')); } catch { return; }
   new GLTFLoader().load(url, (gltf) => {
     const model = gltf.scene;
-    // normalise: face +x, sit on y=0, wheelbase ≈ procedural (~1.52 units)
-    model.rotation.y = THREE.MathUtils.degToRad(cfg.yaw ?? 0);
+    // orient: print STLs point an arbitrary way. cfg.up + cfg.front name the
+    // model-space axes that should become world up (+y) and forward (+x); the
+    // site rebases the model onto them. Falls back to rotX/rotY/rotZ (deg).
+    const ax = (v, def) => { const t = { x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1], '-x': [-1, 0, 0], '-y': [0, -1, 0], '-z': [0, 0, -1] }; return new THREE.Vector3(...(t[v] || def)); };
+    if (cfg.up || cfg.front) {
+      const up = ax(cfg.up, [0, 1, 0]).normalize();
+      const fwd = ax(cfg.front, [1, 0, 0]).normalize();
+      const side = new THREE.Vector3().crossVectors(fwd, up).normalize();
+      const trueUp = new THREE.Vector3().crossVectors(side, fwd).normalize();
+      // basis(model→world) maps model fwd/up onto +x/+y; invert to rotate model
+      const m = new THREE.Matrix4().makeBasis(fwd, trueUp, side).transpose();
+      model.quaternion.setFromRotationMatrix(m);
+    } else {
+      const d = THREE.MathUtils.degToRad;
+      model.rotation.set(d(cfg.rotX ?? 0), d(cfg.rotY ?? cfg.yaw ?? 0), d(cfg.rotZ ?? 0));
+    }
     model.updateMatrixWorld(true);
     let box = new THREE.Box3().setFromObject(model);
     const size = box.getSize(new THREE.Vector3());
     const length = Math.max(size.x, size.z); // longest horizontal axis
-    const s = (cfg.length ?? 1.9) / (length || 1);
+    const s = (cfg.length ?? 1.95) / (length || 1);
     model.scale.setScalar(s);
     model.updateMatrixWorld(true);
     box = new THREE.Box3().setFromObject(model);
     const c = box.getCenter(new THREE.Vector3());
     model.position.x -= c.x; model.position.z -= c.z;
     model.position.y -= box.min.y; // ground contact
-    model.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.material && (o.material.envMapIntensity = 0.6); } });
 
+    // one clean CAD-orange material so the print model catches scene light
+    const hex = (c, def) => (c == null ? def : typeof c === 'number' ? c : Number(c));
+    const skin = new THREE.MeshStandardMaterial({
+      color: new THREE.Color(hex(cfg.color, 0xc0450a)), metalness: 0.0, roughness: 0.55,
+      emissive: new THREE.Color(hex(cfg.emissive, 0x2a0e00)), emissiveIntensity: 0.6,
+      flatShading: false,
+    });
+    skin.userData.baseOpacity = 1;
     // blueprint edges so the intro wireframe still works
     const edgeMat = new THREE.LineBasicMaterial({ color: 0x8be9ff, transparent: true, opacity: 0, depthWrite: false });
-    const realMats = [];
+    const realMats = [skin];
     model.traverse((o) => {
       if (!o.isMesh) return;
-      realMats.push(o.material);
-      o.material.userData.baseOpacity = o.material.opacity ?? 1;
-      try { const e = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 24), edgeMat); e.raycast = () => {}; o.add(e); } catch {}
+      o.castShadow = false;
+      if (!o.geometry.getAttribute('normal')) o.geometry.computeVertexNormals();
+      o.material = skin;
+      try { const e = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 46), edgeMat); e.raycast = () => {}; o.add(e); } catch {}
     });
+    console.log('[bike] real model ready · world size', new THREE.Box3().setFromObject(model).getSize(new THREE.Vector3()).toArray().map((n) => n.toFixed(2)).join(' × '));
 
     obj.bike.clear();
     obj.bike.add(model);
@@ -251,7 +274,7 @@ async function loadRealBike(obj) {
     if (creditEl && obj.credit) creditEl.innerHTML = ` · ${obj.credit}`;
 
     obj.setBlueprint = (k, edgeLevel = 1 - k) => {
-      edgeMat.opacity = Math.min(1, edgeLevel) * 0.9;
+      edgeMat.opacity = Math.min(1, edgeLevel) ** 2 * 0.85;
       for (const mt of realMats) {
         const t = k < 0.999;
         if (mt.transparent !== t) { mt.transparent = t; mt.needsUpdate = true; }

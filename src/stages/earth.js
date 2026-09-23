@@ -113,7 +113,7 @@ export function startStage(ctx) {
     rim: 0x6fa0ff, rimPos: new THREE.Vector3(25, 12, 20),
   });
   L.k.intensity = 3.2; L.r.intensity = 1.1;
-  L.p.color.set(0xdff4ff); L.p.position.set(1.6, 1.2, 0); L.p.distance = 10;
+  L.p.color.set(0xffcf9a); L.p.position.set(1.6, 1.4, 1.2); L.p.distance = 9;
 
   const DN = ctx.mobile ? 500 : 1100;
   const dust = dustPoints(DN, 0xffc48a, 1.2);
@@ -154,7 +154,7 @@ export function startStage(ctx) {
 
       const lit = rf > 0.97 || t > 0.62 ? 6 : Math.floor(rf * 5.99);
       lamps.forEach((m, i) => { m.material.emissive.set(lit === 6 ? 0x19ff5a : i < lit ? 0xff1a1a : 0x000000); });
-      L.p.intensity = 1.5 + rf * 2;
+      L.p.intensity = 0.5 + rf * 1.2;
 
       for (let i = 0; i < DN; i++) {
         const s = seeds[i];

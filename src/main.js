@@ -253,7 +253,8 @@ function frame() {
     if (stages[cur]) stages[cur].group.visible = false;
     cur = i;
     nodeEls.forEach((b, k) => { b.classList.toggle('active', k === i); b.classList.toggle('done', k < i); });
-    nodeEls[i]?.scrollIntoView({ block: 'nearest', inline: 'center', behavior: reduced ? 'auto' : 'smooth' });
+    // centre the active node in the horizontal rail on mobile only (never scroll the page)
+    if (innerWidth <= 760) { const el = nodeEls[i]; if (el) nodeList.scrollTo({ left: el.offsetLeft - (nodeList.clientWidth - el.offsetWidth) / 2, behavior: reduced ? 'auto' : 'smooth' }); }
     document.body.classList.toggle('space', !!st?.space);
     if (st) {
       st.group.visible = true;
