@@ -169,7 +169,7 @@ export function himalayaStage(ctx) {
   };
 
   const uniforms = {
-    uSun: { value: new THREE.Vector3(0.55, 0.30, -0.72) },
+    uSun: { value: new THREE.Vector3(0.5, 0.13, -0.8) }, // aligned with the sky's dawn sun
     uFog: { value: new THREE.Color(0x2b2f4c) },
     uFogNear: { value: 26 }, uFogFar: { value: 105 },
     uRider: { value: new THREE.Vector3() },
@@ -183,6 +183,9 @@ export function himalayaStage(ctx) {
       uniform vec3 uSun; uniform vec3 uFog; uniform float uFogNear, uFogFar; uniform vec3 uRider;
       varying vec3 vW; varying vec3 vN; varying float vRel;
       float iso(float v) { float f = fract(v); float w = fwidth(v); return 1.0 - smoothstep(0.0, w * 1.2, min(f, 1.0 - f)); }
+      float h21(vec2 p) { p = fract(p * vec2(123.34, 456.21)); p += dot(p, p + 45.32); return fract(p.x * p.y); }
+      float vn(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+        return mix(mix(h21(i), h21(i + vec2(1,0)), f.x), mix(h21(i + vec2(0,1)), h21(i + vec2(1,1)), f.x), f.y); }
       void main() {
         vec3 n = normalize(vN);
         vec3 sd = normalize(uSun);
@@ -194,9 +197,11 @@ export function himalayaStage(ctx) {
         vec3 rock = mix(vec3(0.085, 0.10, 0.14), vec3(0.36, 0.30, 0.25), smoothstep(-1.0, 16.0, h));
         rock *= 0.8 + 0.35 * smoothstep(0.2, 0.9, n.y);     // darker on the cliffs
         // snow caps prominent ridges (relief) at any altitude, plus a general
-        // high-altitude dusting; steep faces stay rocky so peaks keep their shape
-        float snowRelief = smoothstep(6.0, 18.0, vRel);
-        float snowAlt = smoothstep(9.0, 22.0, h) * 0.7;
+        // high-altitude dusting; steep faces stay rocky so peaks keep their shape.
+        // a noise jitter breaks the snowline so it isn't a clean contour.
+        float j = (vn(vW.xz * 0.6) + 0.5 * vn(vW.xz * 1.7) - 0.75) * 4.0;
+        float snowRelief = smoothstep(6.0, 18.0, vRel + j);
+        float snowAlt = smoothstep(9.0, 22.0, h + j) * 0.7;
         float snowMask = max(snowRelief, snowAlt) * smoothstep(0.46, 0.84, n.y);
         vec3 snow = mix(vec3(0.50, 0.58, 0.76), vec3(0.96, 0.98, 1.05), dif);
         vec3 albedo = mix(rock, snow, snowMask);

@@ -250,7 +250,18 @@ async function loadRealBike(obj) {
     const paint = obj.mobile
       ? new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.1, roughness: 0.52, envMap, envMapIntensity: 0.4 })
       : new THREE.MeshPhysicalMaterial({ vertexColors: true, metalness: 0.1, roughness: 0.5, clearcoat: 0.5, clearcoatRoughness: 0.35, envMap, envMapIntensity: 0.45 });
-    const wheelMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.45, roughness: 0.55, envMap, envMapIntensity: 0.4 });
+    const wheelMat = new THREE.MeshStandardMaterial({ vertexColors: true, metalness: 0.45, roughness: 0.55, envMap, envMapIntensity: 0.5 });
+    // matte rubber vs metallic rim, keyed off the baked vertex-colour luminance:
+    // near-black tyres read as rubber, the gunmetal rim/disc/hub catch the light.
+    wheelMat.onBeforeCompile = (sh) => {
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>
+          float _lum = dot(vColor.rgb, vec3(0.299, 0.587, 0.114));
+          float _metalMix = smoothstep(0.03, 0.14, _lum);
+          roughnessFactor = mix(0.94, 0.30, _metalMix);`)
+        .replace('#include <metalnessmap_fragment>', `#include <metalnessmap_fragment>
+          metalnessFactor = _metalMix * 0.85;`);
+    };
     paint.userData.baseOpacity = 1; wheelMat.userData.baseOpacity = 1;
     const realMats = [paint, wheelMat];
 
