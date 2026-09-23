@@ -193,7 +193,73 @@ export function buildBike() {
   wheelie.add(bike);
   root.add(wheelie);
 
-  return { root, wheelie, bike, front, rear, setBlueprint, solids, mats };
+  const obj = { root, wheelie, bike, front, rear, setBlueprint, solids, mats, credit: '' };
+  loadRealBike(obj);
+  return obj;
+}
+
+/**
+ * If public/models/ktm.glb is present, load it and use it in place of the
+ * procedural bike. Auto-normalises scale and ground contact; front direction
+ * and credit come from public/models/ktm.json (facing, credit, yaw). Falls
+ * back silently to the procedural bike when the file is absent or fails.
+ */
+async function loadRealBike(obj) {
+  let cfg = {};
+  try {
+    const r = await fetch('models/ktm.json', { cache: 'no-store' });
+    if (!r.ok) return; // no real model configured — keep procedural
+    cfg = await r.json();
+  } catch { return; }
+  const url = cfg.file || 'models/ktm.glb';
+  let GLTFLoader;
+  try { ({ GLTFLoader } = await import('three/examples/jsm/loaders/GLTFLoader.js')); } catch { return; }
+  new GLTFLoader().load(url, (gltf) => {
+    const model = gltf.scene;
+    // normalise: face +x, sit on y=0, wheelbase ≈ procedural (~1.52 units)
+    model.rotation.y = THREE.MathUtils.degToRad(cfg.yaw ?? 0);
+    model.updateMatrixWorld(true);
+    let box = new THREE.Box3().setFromObject(model);
+    const size = box.getSize(new THREE.Vector3());
+    const length = Math.max(size.x, size.z); // longest horizontal axis
+    const s = (cfg.length ?? 1.9) / (length || 1);
+    model.scale.setScalar(s);
+    model.updateMatrixWorld(true);
+    box = new THREE.Box3().setFromObject(model);
+    const c = box.getCenter(new THREE.Vector3());
+    model.position.x -= c.x; model.position.z -= c.z;
+    model.position.y -= box.min.y; // ground contact
+    model.traverse((o) => { if (o.isMesh) { o.castShadow = false; o.material && (o.material.envMapIntensity = 0.6); } });
+
+    // blueprint edges so the intro wireframe still works
+    const edgeMat = new THREE.LineBasicMaterial({ color: 0x8be9ff, transparent: true, opacity: 0, depthWrite: false });
+    const realMats = [];
+    model.traverse((o) => {
+      if (!o.isMesh) return;
+      realMats.push(o.material);
+      o.material.userData.baseOpacity = o.material.opacity ?? 1;
+      try { const e = new THREE.LineSegments(new THREE.EdgesGeometry(o.geometry, 24), edgeMat); e.raycast = () => {}; o.add(e); } catch {}
+    });
+
+    obj.bike.clear();
+    obj.bike.add(model);
+    obj.solids.length = 0;
+    model.traverse((o) => { if (o.isMesh) obj.solids.push(o); });
+    obj.front = obj.rear = new THREE.Group(); // wheel spin no-ops on the scan
+    obj.credit = cfg.credit || '';
+    const creditEl = document.getElementById('credit');
+    if (creditEl && obj.credit) creditEl.innerHTML = ` · ${obj.credit}`;
+
+    obj.setBlueprint = (k, edgeLevel = 1 - k) => {
+      edgeMat.opacity = Math.min(1, edgeLevel) * 0.9;
+      for (const mt of realMats) {
+        const t = k < 0.999;
+        if (mt.transparent !== t) { mt.transparent = t; mt.needsUpdate = true; }
+        mt.opacity = (mt.userData.baseOpacity ?? 1) * k;
+        mt.depthWrite = k > 0.5;
+      }
+    };
+  }, undefined, () => { /* load failed — procedural stays */ });
 }
 
 /** Sample N points over the bike's surfaces (local space, weighted by area). */
